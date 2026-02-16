@@ -45,7 +45,7 @@ export class ErrorBoundary extends Component<Props, State> {
             errorType: 'frontend',
             featureName: this.props.featureName || 'Unknown Feature',
             errorMessage: error.message,
-            stackTrace: error.stack || errorInfo.componentStack,
+            stackTrace: error.stack || (errorInfo.componentStack ?? undefined),
             severity: 'high',
             userImpacted: true
         })

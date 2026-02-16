@@ -133,12 +133,12 @@ export default function TimetablePage() {
                 .order('full_name', { ascending: true })
             setTeachers(teacherData || [])
 
-            // Load time slots
-            const { data: slotData } = await supabase
+            // Load time slots (table may not exist yet)
+            const { data: slotData, error: slotError } = await supabase
                 .from('timetable_slots')
                 .select('*')
                 .order('slot_number', { ascending: true })
-            setSlots(slotData || [])
+            if (!slotError) setSlots(slotData || [])
 
         } catch (error) {
             console.error('Error loading data:', error)
@@ -177,10 +177,21 @@ export default function TimetablePage() {
                 .eq('class_id', selectedClassId)
                 .eq('section_id', selectedSectionId)
 
-            if (error) throw error
+            if (error) {
+                // Table may not exist yet — silently fall back to empty
+                if (error.code === '42P01' || error.message?.includes('does not exist') || error.code === 'PGRST204') {
+                    setEntries([])
+                    return
+                }
+                throw error
+            }
             setEntries(data || [])
-        } catch (error) {
-            console.error('Error loading timetable:', error)
+        } catch (error: any) {
+            // Only log real errors, not missing-table issues
+            if (error?.code !== '42P01') {
+                console.error('Error loading timetable:', error?.message || error)
+            }
+            setEntries([])
         }
     }
 

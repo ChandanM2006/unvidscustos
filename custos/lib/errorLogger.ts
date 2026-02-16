@@ -118,12 +118,13 @@ class ErrorLogger {
                 onLine: navigator?.onLine,
             }
 
-            // Performance metrics (if available)
-            if (performance && performance.memory) {
+            // Performance metrics (if available - Chrome only)
+            const perf = performance as any
+            if (perf && perf.memory) {
                 state.memory = {
-                    usedJSHeapSize: performance.memory.usedJSHeapSize,
-                    totalJSHeapSize: performance.memory.totalJSHeapSize,
-                    jsHeapSizeLimit: performance.memory.jsHeapSizeLimit
+                    usedJSHeapSize: perf.memory.usedJSHeapSize,
+                    totalJSHeapSize: perf.memory.totalJSHeapSize,
+                    jsHeapSizeLimit: perf.memory.jsHeapSizeLimit
                 }
             }
 

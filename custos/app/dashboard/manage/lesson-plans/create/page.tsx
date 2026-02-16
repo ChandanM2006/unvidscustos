@@ -57,6 +57,8 @@ export default function CreateLessonPlanPage() {
     const [startDate, setStartDate] = useState('')
     const [endDate, setEndDate] = useState('')
     const [periodsPerWeek, setPeriodsPerWeek] = useState(5)
+    const [holidays, setHolidays] = useState<string[]>([])
+    const [newHoliday, setNewHoliday] = useState('')
 
     // AI Result
     const [generatedPlan, setGeneratedPlan] = useState<LessonPlanReview | null>(null)
@@ -202,20 +204,23 @@ export default function CreateLessonPlanPage() {
                 constraints: {
                     total_days: calculateDaysBetween(startDate, endDate),
                     periods_per_week: periodsPerWeek,
-                    period_duration_minutes: 45, // Default
-                    holidays: [] // Can add input later
+                    period_duration_minutes: 45,
+                    holidays: holidays,
+                    start_date: startDate
                 }
             }
 
-            // Call AI Service
-            // Note: In local dev, use localhost:8000
-            const response = await fetch('http://localhost:8000/api/lesson-plan/generate', {
+            // Call Next.js API route (works locally and in production)
+            const response = await fetch('/api/lesson-plan/generate', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload)
             })
 
-            if (!response.ok) throw new Error('AI Generation failed')
+            if (!response.ok) {
+                const errData = await response.json().catch(() => null)
+                throw new Error(errData?.error || `Generation failed (${response.status})`)
+            }
 
             const data = await response.json()
             setGeneratedPlan(data)
@@ -239,7 +244,7 @@ export default function CreateLessonPlanPage() {
         setIsSaving(true)
 
         try {
-            // 1. Create Master Lesson Plan
+            // 1. Create Master Lesson Plan (stores full AI schedule including revision/assessment days)
             const { data: planData, error: planError } = await supabase
                 .from('lesson_plans')
                 .insert({
@@ -249,10 +254,10 @@ export default function CreateLessonPlanPage() {
                     academic_year_id: selectedYearId,
                     start_date: startDate,
                     end_date: endDate,
-                    total_periods: generatedPlan.schedule.length, // approximation
+                    total_periods: generatedPlan.schedule.length,
                     periods_per_week: periodsPerWeek,
                     ai_schedule: generatedPlan,
-                    status: 'published' // Auto-publish for now
+                    status: 'published'
                 })
                 .select()
                 .single()
@@ -260,35 +265,43 @@ export default function CreateLessonPlanPage() {
             if (planError) throw planError
 
             // 2. Create Daily Lesson Details
-            const dailyDetails = generatedPlan.schedule.map((dayItem: any) => ({
-                plan_id: planData.plan_id,
-                topic_id: dayItem.topic_id, // Ensure AI returns this or we map it
-                // Calculate date based on day number
-                lesson_date: addDays(startDate, dayItem.day - 1),
-                day_number: dayItem.day,
-                period_number: 1, // Phase 1: Assume 1 period per day entry
-                topic_content: {
-                    title: dayItem.topic_title,
-                    activities: dayItem.activities
-                },
-                status: 'scheduled'
-            }))
+            // Only insert teaching days that have valid topic UUIDs
+            // Revision/assessment days are stored in ai_schedule JSONB but NOT in this table
+            const validTopicIds = new Set(topics.map(t => t.topic_id))
 
-            // Note: topic_id might be needed from AI response or matching logic
-            // For this refined step, we'll try to insert what we have
+            const dailyDetails = generatedPlan.schedule
+                .filter((dayItem: any) => {
+                    // Only include entries with valid lesson_topics UUIDs
+                    return dayItem.topic_id && validTopicIds.has(dayItem.topic_id)
+                })
+                .map((dayItem: any) => ({
+                    plan_id: planData.plan_id,
+                    topic_id: dayItem.topic_id,
+                    lesson_date: addDays(startDate, dayItem.day - 1),
+                    day_number: dayItem.day,
+                    period_number: 1,
+                    topic_content: {
+                        title: dayItem.topic_title,
+                        activities: dayItem.activities,
+                        type: dayItem.type || 'teaching'
+                    },
+                    status: 'scheduled'
+                }))
 
-            const { error: detailsError } = await supabase
-                .from('daily_lesson_details')
-                .insert(dailyDetails)
+            if (dailyDetails.length > 0) {
+                const { error: detailsError } = await supabase
+                    .from('daily_lesson_details')
+                    .insert(dailyDetails)
 
-            if (detailsError) throw detailsError
+                if (detailsError) throw detailsError
+            }
 
-            alert('Lesson Plan Saved Successfully!')
+            alert(`Lesson Plan Saved! ${dailyDetails.length} teaching days + ${generatedPlan.schedule.length - dailyDetails.length} revision/assessment days scheduled.`)
             router.push('/dashboard/manage/lesson-plans')
 
         } catch (error: any) {
             console.error('Error saving plan:', error)
-            alert('Failed to save plan: ' + error.message)
+            alert('Failed to save plan: ' + (error.message || JSON.stringify(error)))
         } finally {
             setIsSaving(false)
         }
@@ -466,9 +479,52 @@ export default function CreateLessonPlanPage() {
                                             className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 outline-none text-gray-900 bg-white"
                                         />
                                     </div>
-                                    {/* Holiday selector placeholder */}
-                                    <div className="p-4 bg-gray-50 rounded-lg border border-dashed border-gray-300">
-                                        <p className="text-sm text-gray-500 text-center">Holiday configuration coming soon</p>
+                                    {/* Holiday Configuration */}
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">Holidays to Skip</label>
+                                        <div className="flex gap-2 mb-2">
+                                            <input
+                                                type="date"
+                                                value={newHoliday}
+                                                onChange={(e) => setNewHoliday(e.target.value)}
+                                                min={startDate || undefined}
+                                                max={endDate || undefined}
+                                                className="flex-1 p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 outline-none text-gray-900 bg-white text-sm"
+                                            />
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    if (newHoliday && !holidays.includes(newHoliday)) {
+                                                        setHolidays([...holidays, newHoliday].sort())
+                                                        setNewHoliday('')
+                                                    }
+                                                }}
+                                                disabled={!newHoliday}
+                                                className="px-3 py-2 bg-purple-600 text-white rounded-lg text-sm font-medium hover:bg-purple-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
+                                            >
+                                                Add
+                                            </button>
+                                        </div>
+                                        {holidays.length > 0 ? (
+                                            <div className="flex flex-wrap gap-1.5">
+                                                {holidays.map(h => (
+                                                    <span
+                                                        key={h}
+                                                        className="inline-flex items-center gap-1 px-2 py-1 bg-red-50 text-red-700 border border-red-200 rounded-md text-xs font-medium"
+                                                    >
+                                                        {new Date(h + 'T00:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
+                                                        <button
+                                                            onClick={() => setHolidays(holidays.filter(d => d !== h))}
+                                                            className="text-red-400 hover:text-red-600 ml-0.5"
+                                                        >
+                                                            <X className="w-3 h-3" />
+                                                        </button>
+                                                    </span>
+                                                ))}
+                                            </div>
+                                        ) : (
+                                            <p className="text-xs text-gray-400">No holidays added. Sundays are skipped automatically.</p>
+                                        )}
                                     </div>
                                 </div>
                             </div>

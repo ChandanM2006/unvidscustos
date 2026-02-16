@@ -1,0 +1,28 @@
+{
+    "crons": [
+        {
+            "path": "/api/cron/generate-daily-practice",
+            "schedule": "30 7 * * 1-6"
+        },
+        {
+            "path": "/api/cron/generate-weekly-tests",
+            "schedule": "30 9 * * 0"
+        }
+    ],
+    "env": {
+        "SUPABASE_SERVICE_ROLE_KEY": "@supabase-service-role-key",
+        "CRON_SECRET": "@cron-secret",
+        "ANTHROPIC_API_KEY": "@anthropic-api-key"
+    },
+    "headers": [
+        {
+            "source": "/api/(.*)",
+            "headers": [
+                {
+                    "key": "Cache-Control",
+                    "value": "no-store, must-revalidate"
+                }
+            ]
+        }
+    ]
+}

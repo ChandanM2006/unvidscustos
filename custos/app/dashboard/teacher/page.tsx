@@ -3,9 +3,11 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { NotificationBell } from '@/components/NotificationBell'
 import {
     BookOpen, Clock, Calendar, FileText, Brain, CheckCircle,
-    ClipboardCheck, Bell, User, ChevronRight, Loader2, Sparkles
+    ClipboardCheck, Bell, User, ChevronRight, Loader2, Sparkles,
+    BarChart3, MessageSquare
 } from 'lucide-react'
 
 interface TodayClass {
@@ -166,12 +168,7 @@ export default function TeacherDashboard() {
                             </p>
                         </div>
                     </div>
-                    <button
-                        onClick={() => router.push('/dashboard/notifications')}
-                        className="p-2 hover:bg-gray-100 rounded-lg relative"
-                    >
-                        <Bell className="w-6 h-6 text-gray-600" />
-                    </button>
+                    {teacher && <NotificationBell userId={teacher.user_id} />}
                 </div>
             </header>
 
@@ -260,8 +257,8 @@ export default function TeacherDashboard() {
                                         <p className="text-sm text-gray-500">{plan.class_name}</p>
                                     </div>
                                     <span className={`px-2 py-1 rounded-full text-xs font-medium ${plan.status === 'published' ? 'bg-green-100 text-green-700' :
-                                            plan.status === 'in_progress' ? 'bg-blue-100 text-blue-700' :
-                                                'bg-gray-100 text-gray-600'
+                                        plan.status === 'in_progress' ? 'bg-blue-100 text-blue-700' :
+                                            'bg-gray-100 text-gray-600'
                                         }`}>
                                         {plan.status}
                                     </span>
@@ -283,7 +280,15 @@ export default function TeacherDashboard() {
                 </div>
 
                 {/* Quick Actions */}
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                    <button
+                        onClick={() => router.push('/dashboard/teacher/performance')}
+                        className="bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl p-6 shadow-lg hover:shadow-xl transition-all text-center text-white"
+                    >
+                        <BarChart3 className="w-10 h-10 mx-auto mb-2 opacity-90" />
+                        <p className="font-bold">Performance</p>
+                        <p className="text-xs opacity-75">Class analytics</p>
+                    </button>
                     <button
                         onClick={() => router.push('/dashboard/manage/attendance')}
                         className="bg-white rounded-xl p-6 shadow-sm hover:shadow-md transition-shadow text-center"
@@ -311,6 +316,13 @@ export default function TeacherDashboard() {
                     >
                         <BookOpen className="w-10 h-10 text-green-600 mx-auto mb-2" />
                         <p className="font-medium text-gray-900">View Syllabus</p>
+                    </button>
+                    <button
+                        onClick={() => router.push('/dashboard/teacher/doubts')}
+                        className="bg-white rounded-xl p-6 shadow-sm hover:shadow-md transition-shadow text-center"
+                    >
+                        <MessageSquare className="w-10 h-10 text-cyan-600 mx-auto mb-2" />
+                        <p className="font-medium text-gray-900">Student Doubts</p>
                     </button>
                 </div>
             </main>

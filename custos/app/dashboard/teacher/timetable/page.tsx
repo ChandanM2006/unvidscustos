@@ -82,7 +82,7 @@ export default function TeacherTimetablePage() {
                 `)
                 .eq('teacher_id', userData.user_id)
 
-            setEntries(entryData || [])
+            setEntries((entryData as any) || [])
 
         } catch (error) {
             console.error('Error:', error)

@@ -3,9 +3,11 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { NotificationBell } from '@/components/NotificationBell'
 import {
     BookOpen, Clock, Calendar, FileText, Brain, CheckCircle,
-    Bell, ChevronRight, Loader2, GraduationCap, BarChart3, Star
+    Bell, ChevronRight, Loader2, GraduationCap, BarChart3, Star,
+    Flame, Zap, Trophy, Target, MessageCircle
 } from 'lucide-react'
 
 interface TodayClass {
@@ -24,6 +26,7 @@ export default function StudentDashboard() {
     const [currentTime, setCurrentTime] = useState(new Date())
     const [attendancePercent, setAttendancePercent] = useState(0)
     const [className, setClassName] = useState('')
+    const [brainData, setBrainData] = useState<any>(null)
 
     useEffect(() => {
         const timer = setInterval(() => setCurrentTime(new Date()), 60000)
@@ -140,6 +143,15 @@ export default function StudentDashboard() {
                 setAttendancePercent(Math.round(attendanceData.percentage))
             }
 
+            // Fetch Brain activity data
+            try {
+                const brainRes = await fetch(`/api/brain/activity?studentId=${userData.user_id}`)
+                if (brainRes.ok) {
+                    const data = await brainRes.json()
+                    setBrainData(data)
+                }
+            } catch { }
+
         } catch (error) {
             console.error('Error:', error)
         } finally {
@@ -181,12 +193,7 @@ export default function StudentDashboard() {
                             </p>
                         </div>
                     </div>
-                    <button
-                        onClick={() => router.push('/dashboard/notifications')}
-                        className="p-2 hover:bg-gray-100 rounded-lg"
-                    >
-                        <Bell className="w-6 h-6 text-gray-600" />
-                    </button>
+                    {student && <NotificationBell userId={student.user_id} />}
                 </div>
             </header>
 
@@ -215,6 +222,103 @@ export default function StudentDashboard() {
                         <p className="text-xs text-gray-500">Last Grade</p>
                     </div>
                 </div>
+
+                {/* 🧠 Daily Practice CTA */}
+                <button
+                    onClick={() => router.push('/dashboard/student/practice')}
+                    className={`w-full rounded-2xl p-5 shadow-lg hover:shadow-xl transition-all active:scale-[0.99] text-left ${brainData?.todayPractice?.status === 'completed'
+                        ? 'bg-gradient-to-r from-green-600 to-emerald-600'
+                        : 'bg-gradient-to-r from-indigo-600 to-purple-600'
+                        }`}
+                >
+                    <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-4">
+                            <div className="w-14 h-14 bg-white/20 rounded-2xl flex items-center justify-center">
+                                {brainData?.todayPractice?.status === 'completed' ? (
+                                    <CheckCircle className="w-7 h-7 text-white" />
+                                ) : (
+                                    <Brain className="w-7 h-7 text-white" />
+                                )}
+                            </div>
+                            <div>
+                                <h3 className="text-lg font-bold text-white">
+                                    {brainData?.todayPractice?.status === 'completed'
+                                        ? 'Practice Complete! ✅'
+                                        : 'Daily Practice'}
+                                </h3>
+                                <p className="text-sm text-white/70">
+                                    {brainData?.todayPractice?.status === 'completed'
+                                        ? `Score: ${brainData.todayPractice.score_percentage}%`
+                                        : '10 adaptive questions • ~5 min'}
+                                </p>
+                            </div>
+                        </div>
+                        <ChevronRight className="w-6 h-6 text-white/70" />
+                    </div>
+                </button>
+
+                {/* 🔥 Brain Stats Row */}
+                {brainData && (
+                    <>
+                        <div className="grid grid-cols-3 gap-3">
+                            <div className="bg-white rounded-xl p-4 shadow-sm text-center">
+                                <Flame className="w-6 h-6 text-orange-500 mx-auto mb-1" />
+                                <p className="text-xl font-bold text-gray-900">{brainData.dailyStreak || 0}</p>
+                                <p className="text-xs text-gray-500">Day Streak</p>
+                            </div>
+                            <div className="bg-white rounded-xl p-4 shadow-sm text-center">
+                                <Zap className="w-6 h-6 text-yellow-500 mx-auto mb-1" />
+                                <p className="text-xl font-bold text-gray-900">{brainData.activityScore || 0}</p>
+                                <p className="text-xs text-gray-500">Points</p>
+                            </div>
+                            <button
+                                onClick={() => router.push('/dashboard/student/analytics')}
+                                className="bg-white rounded-xl p-4 shadow-sm text-center hover:shadow-md transition-shadow"
+                            >
+                                <BarChart3 className="w-6 h-6 text-indigo-500 mx-auto mb-1" />
+                                <p className="text-xl font-bold text-gray-900">{brainData.achievements?.length || 0}</p>
+                                <p className="text-xs text-indigo-600 font-medium">Analytics →</p>
+                            </button>
+                        </div>
+                    </>
+                )}
+
+                {/* 📊 This Week */}
+                {brainData?.recentHistory && brainData.recentHistory.length > 0 && (
+                    <div className="bg-white rounded-2xl shadow-sm p-5">
+                        <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">This Week</h3>
+                        <div className="flex items-center gap-1">
+                            {[0, 1, 2, 3, 4, 5, 6].map((dayOffset) => {
+                                const d = new Date()
+                                d.setDate(d.getDate() - (6 - dayOffset))
+                                const dateStr = d.toISOString().split('T')[0]
+                                const phase = brainData.recentHistory.find(
+                                    (p: any) => p.scheduled_date === dateStr && p.phase_type === 'daily'
+                                )
+                                const dayLabel = d.toLocaleDateString('en-US', { weekday: 'narrow' })
+                                return (
+                                    <div key={dayOffset} className="flex-1 text-center">
+                                        <div className={`w-8 h-8 mx-auto rounded-lg flex items-center justify-center text-xs font-bold ${phase?.status === 'completed'
+                                            ? phase.score_percentage >= 80
+                                                ? 'bg-green-500 text-white'
+                                                : phase.score_percentage >= 50
+                                                    ? 'bg-yellow-500 text-white'
+                                                    : 'bg-red-400 text-white'
+                                            : dateStr === new Date().toISOString().split('T')[0]
+                                                ? 'bg-indigo-100 text-indigo-600 border-2 border-indigo-300'
+                                                : 'bg-gray-100 text-gray-400'
+                                            }`}>
+                                            {phase?.status === 'completed'
+                                                ? phase.score_percentage >= 80 ? '✓' : Math.round(phase.score_percentage / 10)
+                                                : dayLabel}
+                                        </div>
+                                        <p className="text-[10px] text-gray-400 mt-1">{dayLabel}</p>
+                                    </div>
+                                )
+                            })}
+                        </div>
+                    </div>
+                )}
 
                 {/* Today's Schedule */}
                 <div className="bg-white rounded-2xl shadow-lg overflow-hidden">
@@ -253,6 +357,25 @@ export default function StudentDashboard() {
                         )}
                     </div>
                 </div>
+
+                {/* 🤖 AI Tutor CTA */}
+                <button
+                    onClick={() => router.push('/dashboard/student/tutor')}
+                    className="w-full rounded-2xl p-5 shadow-lg hover:shadow-xl transition-all active:scale-[0.99] text-left bg-gradient-to-r from-cyan-600 to-blue-600"
+                >
+                    <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-4">
+                            <div className="w-14 h-14 bg-white/20 rounded-2xl flex items-center justify-center">
+                                <MessageCircle className="w-7 h-7 text-white" />
+                            </div>
+                            <div>
+                                <h3 className="text-lg font-bold text-white">Ask AI Tutor</h3>
+                                <p className="text-sm text-white/80">Get instant help with any topic • Send photos of problems</p>
+                            </div>
+                        </div>
+                        <ChevronRight className="w-6 h-6 text-white/60" />
+                    </div>
+                </button>
 
                 {/* Quick Actions */}
                 <h3 className="text-lg font-bold text-gray-900">Study Resources</h3>

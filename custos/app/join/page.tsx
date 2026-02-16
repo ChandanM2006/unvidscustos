@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import {
@@ -20,7 +20,7 @@ interface InvitationData {
     schools?: { name: string }
 }
 
-export default function JoinPage() {
+function JoinPageInner() {
     const router = useRouter()
     const searchParams = useSearchParams()
     const token = searchParams.get('token')
@@ -465,5 +465,17 @@ export default function JoinPage() {
                 )}
             </div>
         </div>
+    )
+}
+
+export default function JoinPage() {
+    return (
+        <Suspense fallback={
+            <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-600 to-purple-700">
+                <Loader2 className="w-10 h-10 text-white animate-spin" />
+            </div>
+        }>
+            <JoinPageInner />
+        </Suspense>
     )
 }
