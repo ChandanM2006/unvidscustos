@@ -1,7 +1,8 @@
 'use client'
 
 import { useState, useEffect, Suspense } from 'react'
-import { useRouter, useParams, useSearchParams } from 'next/navigation'
+import { useParams, useSearchParams } from 'next/navigation'
+import { useSmartBack } from '@/lib/navigation'
 import { supabase } from '@/lib/supabase'
 import {
     ArrowLeft, Loader2, BookOpen, Users, AlertTriangle,
@@ -33,7 +34,7 @@ type ViewMode = 'all' | 'struggling' | 'mastered' | 'not_started'
 // ─── Component ──────────────────────────────────────────
 
 function TopicReportPageInner() {
-    const router = useRouter()
+    const { goBack, router } = useSmartBack('/dashboard/teacher')
     const params = useParams()
     const searchParams = useSearchParams()
     const topicId = params.topicId as string
@@ -57,11 +58,12 @@ function TopicReportPageInner() {
                 `/api/teacher/topic-report?topic_id=${topicId}&section_id=${sectionId}`
             )
 
+            const data = await res.json()
+
             if (!res.ok) {
-                throw new Error('Failed to load topic report')
+                throw new Error(data.error || 'Failed to load topic report')
             }
 
-            const data = await res.json()
             setReport(data)
         } catch (err: any) {
             setError(err.message)
@@ -118,7 +120,7 @@ function TopicReportPageInner() {
                 <div className="text-center">
                     <AlertTriangle className="w-12 h-12 text-red-400 mx-auto mb-4" />
                     <p className="text-red-300">{error || 'Report not found'}</p>
-                    <button onClick={() => router.back()} className="mt-4 px-6 py-2 bg-white/10 rounded-xl text-white text-sm">
+                    <button onClick={goBack} className="mt-4 px-6 py-2 bg-white/10 rounded-xl text-white text-sm">
                         Go Back
                     </button>
                 </div>
@@ -133,7 +135,7 @@ function TopicReportPageInner() {
             {/* Header */}
             <header className="bg-white/5 backdrop-blur-lg border-b border-white/10 px-4 sm:px-6 py-4 sticky top-0 z-20">
                 <div className="max-w-4xl mx-auto flex items-center gap-3">
-                    <button onClick={() => router.back()} className="p-2 hover:bg-white/10 rounded-lg">
+                    <button onClick={goBack} className="p-2 hover:bg-white/10 rounded-lg">
                         <ArrowLeft className="w-5 h-5 text-blue-300" />
                     </button>
                     <div>

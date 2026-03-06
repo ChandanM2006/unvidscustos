@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { supabase, type User } from '@/lib/supabase'
-import { useRouter } from 'next/navigation'
+import { useSmartBack } from '@/lib/navigation'
 import {
     ArrowLeft, Check, X, Clock, Save, Loader2,
     Calendar, Users
@@ -15,7 +15,7 @@ interface Student {
 }
 
 export default function TeacherAttendancePage() {
-    const router = useRouter()
+    const { goBack, router } = useSmartBack('/dashboard/teacher')
     const [user, setUser] = useState<User | null>(null)
     const [loading, setLoading] = useState(true)
     const [saving, setSaving] = useState(false)
@@ -78,11 +78,16 @@ export default function TeacherAttendancePage() {
 
         if (classesData) setClasses(classesData)
 
-        const { data: sectionsData } = await supabase
-            .from('sections')
-            .select('*')
+        // Filter sections to only this school's classes
+        const classIds = (classesData || []).map((c: any) => c.class_id)
+        if (classIds.length > 0) {
+            const { data: sectionsData } = await supabase
+                .from('sections')
+                .select('*')
+                .in('class_id', classIds)
 
-        if (sectionsData) setSections(sectionsData)
+            if (sectionsData) setSections(sectionsData)
+        }
     }
 
     const loadStudents = async () => {
@@ -210,7 +215,7 @@ export default function TeacherAttendancePage() {
                 <div className="flex items-center justify-between max-w-4xl mx-auto">
                     <div className="flex items-center gap-4">
                         <button
-                            onClick={() => router.push('/dashboard/teacher')}
+                            onClick={goBack}
                             className="p-2 hover:bg-white/10 rounded-lg transition-colors"
                         >
                             <ArrowLeft className="w-5 h-5 text-blue-300" />
@@ -332,10 +337,10 @@ export default function TeacherAttendancePage() {
                                             <button
                                                 onClick={() => toggleAttendance(student.user_id)}
                                                 className={`px-4 py-2 rounded-lg font-medium transition-colors flex items-center gap-2 ${attendance[student.user_id] === 'present'
-                                                        ? 'bg-green-500/20 text-green-400 border border-green-500/30'
-                                                        : attendance[student.user_id] === 'absent'
-                                                            ? 'bg-red-500/20 text-red-400 border border-red-500/30'
-                                                            : 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30'
+                                                    ? 'bg-green-500/20 text-green-400 border border-green-500/30'
+                                                    : attendance[student.user_id] === 'absent'
+                                                        ? 'bg-red-500/20 text-red-400 border border-red-500/30'
+                                                        : 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30'
                                                     }`}
                                             >
                                                 {attendance[student.user_id] === 'present' && <Check className="w-4 h-4" />}

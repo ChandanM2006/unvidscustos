@@ -2,13 +2,13 @@
 
 import { useEffect, useState } from 'react'
 import { supabase, type User } from '@/lib/supabase'
-import { useRouter } from 'next/navigation'
+import { useSmartBack } from '@/lib/navigation'
 import {
     Trophy, ArrowLeft, Loader2, Target, CheckCircle, Star, Calendar
 } from 'lucide-react'
 
 export default function StudentProgressPage() {
-    const router = useRouter()
+    const { goBack, router } = useSmartBack('/dashboard/student')
     const [user, setUser] = useState<User | null>(null)
     const [loading, setLoading] = useState(true)
     const [stats, setStats] = useState({
@@ -100,7 +100,7 @@ export default function StudentProgressPage() {
             <header className="bg-white/5 backdrop-blur-lg border-b border-white/10 px-6 py-4">
                 <div className="max-w-4xl mx-auto flex items-center gap-4">
                     <button
-                        onClick={() => router.push('/dashboard/student')}
+                        onClick={goBack}
                         className="p-2 hover:bg-white/10 rounded-lg transition-colors"
                     >
                         <ArrowLeft className="w-5 h-5 text-green-300" />

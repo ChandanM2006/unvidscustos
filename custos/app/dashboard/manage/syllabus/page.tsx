@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
-import { useRouter } from 'next/navigation'
+import { useSmartBack } from '@/lib/navigation'
 import { Book, Upload, Trash2, Eye, ArrowLeft, FileText, TrendingDown } from 'lucide-react'
 
 interface SyllabusDocument {
@@ -24,11 +24,12 @@ interface SyllabusDocument {
 }
 
 export default function SyllabusListPage() {
-    const router = useRouter()
+    const { goBack, router } = useSmartBack('/dashboard/manage')
     const [documents, setDocuments] = useState<SyllabusDocument[]>([])
     const [loading, setLoading] = useState(true)
     const [mounted, setMounted] = useState(false)
     const [userRole, setUserRole] = useState<string | null>(null)
+    const [userSchoolId, setUserSchoolId] = useState<string | null>(null)
 
     useEffect(() => {
         setMounted(true)
@@ -45,7 +46,7 @@ export default function SyllabusListPage() {
 
             const { data: userData } = await supabase
                 .from('users')
-                .select('role')
+                .select('role, school_id')
                 .eq('email', session.user.email)
                 .single()
 
@@ -62,24 +63,43 @@ export default function SyllabusListPage() {
             }
 
             setUserRole(userData.role)
-            loadDocuments()
+            setUserSchoolId(userData.school_id)
+            loadDocuments(userData.school_id)
         } catch (error) {
             console.error('Auth error:', error)
             router.push('/login')
         }
     }
 
-    async function loadDocuments() {
+    async function loadDocuments(schoolId: string) {
         try {
+            // First get subject IDs belonging to this school
+            const { data: schoolSubjects, error: subError } = await supabase
+                .from('subjects')
+                .select('subject_id')
+                .eq('school_id', schoolId)
+
+            if (subError) throw subError
+
+            const subjectIds = schoolSubjects?.map(s => s.subject_id) || []
+
+            if (subjectIds.length === 0) {
+                setDocuments([])
+                setLoading(false)
+                return
+            }
+
             const { data, error } = await supabase
                 .from('syllabus_documents')
                 .select(`
           *,
           subjects:subject_id (
             name,
-            code
+            code,
+            school_id
           )
         `)
+                .in('subject_id', subjectIds)
                 .order('created_at', { ascending: false })
 
             if (error) throw error
@@ -110,7 +130,7 @@ export default function SyllabusListPage() {
 
             if (error) throw error
             alert('Document deleted successfully!')
-            loadDocuments()
+            loadDocuments(userSchoolId!)
         } catch (error: any) {
             console.error('Error deleting document:', error)
             alert('Failed to delete: ' + error.message)
@@ -146,7 +166,7 @@ export default function SyllabusListPage() {
                 <div className="flex items-center justify-between mb-8">
                     <div className="flex items-center gap-4">
                         <button
-                            onClick={() => router.push('/dashboard/manage')}
+                            onClick={goBack}
                             className="p-2 hover:bg-white rounded-lg transition-colors"
                         >
                             <ArrowLeft className="w-6 h-6 text-gray-600" />

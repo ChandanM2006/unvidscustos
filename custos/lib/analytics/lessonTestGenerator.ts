@@ -40,7 +40,7 @@ export async function generateLessonTest(
                     detail_id,
                     lesson_topics (
                         topic_id,
-                        topic_name
+                        topic_title
                     )
                 )
             `)

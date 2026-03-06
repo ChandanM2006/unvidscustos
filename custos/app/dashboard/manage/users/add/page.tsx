@@ -1,11 +1,11 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
+import { useSmartBack } from '@/lib/navigation'
 import { supabase } from '@/lib/supabase'
 import {
     ArrowLeft, UserPlus, Mail, Phone, User, GraduationCap,
-    Users, Send, Loader2, CheckCircle, X, ChevronDown
+    Users, Send, Loader2, CheckCircle, X, ChevronDown, Hash, Search
 } from 'lucide-react'
 
 interface ClassItem {
@@ -20,14 +20,23 @@ interface Section {
     class_id: string
 }
 
+interface StudentItem {
+    user_id: string
+    full_name: string
+    email: string | null
+    class_name?: string
+    section_name?: string
+}
+
 export default function AddUserPage() {
-    const router = useRouter()
+    const { goBack, router } = useSmartBack('/dashboard/manage/users')
     const [loading, setLoading] = useState(true)
     const [saving, setSaving] = useState(false)
     const [currentSchoolId, setCurrentSchoolId] = useState<string | null>(null)
 
     const [classes, setClasses] = useState<ClassItem[]>([])
     const [sections, setSections] = useState<Section[]>([])
+    const [students, setStudents] = useState<StudentItem[]>([])
     const [step, setStep] = useState(1)
     const [success, setSuccess] = useState(false)
 
@@ -39,26 +48,21 @@ export default function AddUserPage() {
         full_name: '',
         email: '',
         phone: '',
+        roll_number: '',
 
         // Student specific
         class_id: '',
         section_id: '',
 
-        // Parent info (for students)
-        parent1_name: '',
-        parent1_email: '',
-        parent1_phone: '',
-        parent1_relationship: 'father',
-
-        parent2_name: '',
-        parent2_email: '',
-        parent2_phone: '',
-        parent2_relationship: 'mother',
+        // Parent-specific: link to child
+        linked_student_id: '',
+        parent_relationship: 'father',
 
         // Invitation options
         send_email_invite: true,
         send_sms_invite: false
     })
+    const [studentSearch, setStudentSearch] = useState('')
 
     useEffect(() => {
         checkAuth()
@@ -79,7 +83,7 @@ export default function AddUserPage() {
                 .single()
 
             if (!userData || !['super_admin', 'sub_admin'].includes(userData.role)) {
-                router.push('/dashboard')
+                router.replace('/dashboard/redirect')
                 return
             }
 
@@ -94,13 +98,44 @@ export default function AddUserPage() {
 
             setClasses(classesData || [])
 
-            // Load sections
-            const { data: sectionsData } = await supabase
-                .from('sections')
-                .select('*')
-                .order('name')
+            // Load sections filtered to this school's classes
+            const classIds = (classesData || []).map((c: any) => c.class_id)
+            let loadedSections: any[] = []
+            if (classIds.length > 0) {
+                const { data: sectionsData } = await supabase
+                    .from('sections')
+                    .select('*')
+                    .in('class_id', classIds)
+                    .order('name')
 
-            setSections(sectionsData || [])
+                loadedSections = sectionsData || []
+            }
+            setSections(loadedSections)
+
+            // Load students (for parent linking)
+            const { data: studentsData, error: studentsError } = await supabase
+                .from('users')
+                .select('user_id, full_name, email, class_id, section_id')
+                .eq('school_id', userData.school_id)
+                .eq('role', 'student')
+                .order('full_name')
+
+            console.log('[AddUser] Students loaded:', studentsData?.length, 'school_id:', userData.school_id)
+            if (studentsError) console.error('[AddUser] Students load error:', studentsError.message)
+
+            // Enrich with class/section names
+            const enrichedStudents: StudentItem[] = (studentsData || []).map((s: any) => {
+                const cls = classesData?.find((c: any) => c.class_id === s.class_id)
+                const sec = loadedSections?.find((sec: any) => sec.section_id === s.section_id)
+                return {
+                    user_id: s.user_id,
+                    full_name: s.full_name,
+                    email: s.email,
+                    class_name: cls?.name || '',
+                    section_name: sec?.name || ''
+                }
+            })
+            setStudents(enrichedStudents)
 
         } catch (error) {
             console.error('Error:', error)
@@ -115,8 +150,13 @@ export default function AddUserPage() {
             return
         }
 
-        if (!formData.email && !formData.phone) {
-            alert('Please enter email or phone number')
+        if (!formData.email) {
+            alert('Please enter an email address')
+            return
+        }
+
+        if (userType === 'student' && !formData.roll_number) {
+            alert('Please enter a Roll Number for the student')
             return
         }
 
@@ -130,7 +170,9 @@ export default function AddUserPage() {
                 phone: formData.phone || null,
                 role: userType,
                 school_id: currentSchoolId,
-                metadata: {},
+                metadata: userType === 'parent' && formData.linked_student_id
+                    ? { student_id: formData.linked_student_id, relationship: formData.parent_relationship }
+                    : {},
                 status: 'pending',
                 invite_method: formData.send_email_invite ? 'email' : (formData.send_sms_invite ? 'sms' : 'email')
             }
@@ -139,21 +181,8 @@ export default function AddUserPage() {
             if (userType === 'student') {
                 inviteData.metadata = {
                     class_id: formData.class_id || null,
-                    section_id: formData.section_id || null
-                }
-
-                if (formData.parent1_name) {
-                    inviteData.parent1_name = formData.parent1_name
-                    inviteData.parent1_email = formData.parent1_email || null
-                    inviteData.parent1_phone = formData.parent1_phone || null
-                    inviteData.parent1_relationship = formData.parent1_relationship
-                }
-
-                if (formData.parent2_name) {
-                    inviteData.parent2_name = formData.parent2_name
-                    inviteData.parent2_email = formData.parent2_email || null
-                    inviteData.parent2_phone = formData.parent2_phone || null
-                    inviteData.parent2_relationship = formData.parent2_relationship
+                    section_id: formData.section_id || null,
+                    roll_number: formData.roll_number || null
                 }
             }
 
@@ -171,35 +200,15 @@ export default function AddUserPage() {
                 return
             }
 
-            // Invitation created successfully - create parent invitations too
-            if (userType === 'student' && formData.parent1_email) {
-                await supabase.from('user_invitations').insert({
-                    full_name: formData.parent1_name,
-                    email: formData.parent1_email,
-                    phone: formData.parent1_phone,
-                    role: 'parent',
-                    school_id: currentSchoolId,
-                    metadata: { student_invite_id: invite.invite_id },
-                    status: 'pending'
-                })
-            }
-
-            if (userType === 'student' && formData.parent2_email) {
-                await supabase.from('user_invitations').insert({
-                    full_name: formData.parent2_name,
-                    email: formData.parent2_email,
-                    phone: formData.parent2_phone,
-                    role: 'parent',
-                    school_id: currentSchoolId,
-                    metadata: { student_invite_id: invite.invite_id },
-                    status: 'pending'
-                })
-            }
 
             await supabase
                 .from('user_invitations')
                 .update({ status: 'invited', invite_sent_at: new Date().toISOString() })
                 .eq('invite_id', invite.invite_id)
+
+            // Parent-child link is handled server-side in /api/users/create
+            // (metadata.student_id is passed via invite → join page → API)
+
 
             setSuccess(true)
 
@@ -218,6 +227,7 @@ export default function AddUserPage() {
 
         console.log('Creating user directly:', formData.full_name, formData.email)
 
+        // If parent with student link, pass student_id to API so it links server-side (bypasses RLS)
         const response = await fetch('/api/users/create', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -228,7 +238,9 @@ export default function AddUserPage() {
                 role: userType,
                 school_id: currentSchoolId,
                 class_id: formData.class_id || null,
-                section_id: formData.section_id || null
+                section_id: formData.section_id || null,
+                roll_number: userType === 'student' ? (formData.roll_number || null) : null,
+                student_id: userType === 'parent' && formData.linked_student_id ? formData.linked_student_id : null
             })
         })
 
@@ -241,67 +253,6 @@ export default function AddUserPage() {
             return
         }
 
-        // If student has parents, create and link them
-        if (userType === 'student' && formData.parent1_email && formData.parent1_name) {
-            const parentPass = Math.random().toString(36).slice(-8) + 'A1!'
-            console.log('Creating parent 1:', formData.parent1_name)
-
-            const parentRes = await fetch('/api/users/create', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    email: formData.parent1_email,
-                    password: parentPass,
-                    full_name: formData.parent1_name,
-                    role: 'parent',
-                    school_id: currentSchoolId
-                })
-            })
-
-            if (parentRes.ok) {
-                const parentData = await parentRes.json()
-                console.log('Parent 1 created, linking to student...')
-                // Link parent to student
-                const { error: linkError } = await supabase.from('parent_student_links').insert({
-                    parent_id: parentData.user.user_id,
-                    student_id: data.user.user_id,
-                    relationship: formData.parent1_relationship
-                })
-                if (linkError) console.error('Link error:', linkError)
-            } else {
-                console.log('Parent 1 creation failed')
-            }
-        }
-
-        if (userType === 'student' && formData.parent2_email && formData.parent2_name) {
-            const parentPass = Math.random().toString(36).slice(-8) + 'A1!'
-            console.log('Creating parent 2:', formData.parent2_name)
-
-            const parentRes = await fetch('/api/users/create', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    email: formData.parent2_email,
-                    password: parentPass,
-                    full_name: formData.parent2_name,
-                    role: 'parent',
-                    school_id: currentSchoolId
-                })
-            })
-
-            if (parentRes.ok) {
-                const parentData = await parentRes.json()
-                console.log('Parent 2 created, linking to student...')
-                const { error: linkError } = await supabase.from('parent_student_links').insert({
-                    parent_id: parentData.user.user_id,
-                    student_id: data.user.user_id,
-                    relationship: formData.parent2_relationship
-                })
-                if (linkError) console.error('Link error:', linkError)
-            } else {
-                console.log('Parent 2 creation failed')
-            }
-        }
 
         console.log('User created successfully!')
         setSuccess(true)
@@ -326,21 +277,19 @@ export default function AddUserPage() {
                     </div>
                     <h2 className="text-2xl font-bold text-gray-900 mb-2">User Added Successfully!</h2>
                     <p className="text-gray-600 mb-6">
-                        {userType === 'student' && formData.parent1_email
-                            ? 'Student and parent accounts have been created. Invitations will be sent.'
-                            : 'The user account has been created.'}
+                        The user account has been created successfully.
                     </p>
                     <div className="flex gap-3">
                         <button
                             onClick={() => {
                                 setSuccess(false)
                                 setFormData({
-                                    full_name: '', email: '', phone: '',
+                                    full_name: '', email: '', phone: '', roll_number: '',
                                     class_id: '', section_id: '',
-                                    parent1_name: '', parent1_email: '', parent1_phone: '', parent1_relationship: 'father',
-                                    parent2_name: '', parent2_email: '', parent2_phone: '', parent2_relationship: 'mother',
+                                    linked_student_id: '', parent_relationship: 'father',
                                     send_email_invite: true, send_sms_invite: false
                                 })
+                                setStudentSearch('')
                             }}
                             className="flex-1 py-3 bg-blue-600 text-white rounded-xl font-medium hover:bg-blue-700"
                         >
@@ -436,19 +385,37 @@ export default function AddUserPage() {
                             </div>
                         </div>
 
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">Phone Number</label>
-                            <div className="relative">
-                                <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-                                <input
-                                    type="tel"
-                                    value={formData.phone}
-                                    onChange={(e) => setFormData(f => ({ ...f, phone: e.target.value }))}
-                                    className="w-full pl-10 p-3 border border-gray-300 rounded-lg text-gray-900"
-                                    placeholder="+91 9876543210"
-                                />
+                        {/* Show Roll No for students, Phone for others */}
+                        {userType === 'student' ? (
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Roll No *</label>
+                                <div className="relative">
+                                    <Hash className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                                    <input
+                                        type="text"
+                                        value={formData.roll_number}
+                                        onChange={(e) => setFormData(f => ({ ...f, roll_number: e.target.value }))}
+                                        className="w-full pl-10 p-3 border border-gray-300 rounded-lg text-gray-900"
+                                        placeholder="e.g. 2024001"
+                                    />
+                                </div>
+                                <p className="text-xs text-gray-500 mt-1">Student's unique identification number</p>
                             </div>
-                        </div>
+                        ) : (
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Phone Number</label>
+                                <div className="relative">
+                                    <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                                    <input
+                                        type="tel"
+                                        value={formData.phone}
+                                        onChange={(e) => setFormData(f => ({ ...f, phone: e.target.value }))}
+                                        className="w-full pl-10 p-3 border border-gray-300 rounded-lg text-gray-900"
+                                        placeholder="+91 9876543210"
+                                    />
+                                </div>
+                            </div>
+                        )}
 
                         {/* Student specific fields */}
                         {userType === 'student' && (
@@ -488,118 +455,144 @@ export default function AddUserPage() {
                     </div>
                 </div>
 
-                {/* Parent Info (for Students only) */}
-                {userType === 'student' && (
+                {/* Link to Student (for Parents only) */}
+                {userType === 'parent' && (
                     <div className="bg-white rounded-2xl shadow-lg p-6 mb-6">
                         <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
-                            <Users className="w-5 h-5 text-purple-600" />
-                            Parent/Guardian Information
+                            <GraduationCap className="w-5 h-5 text-green-600" />
+                            Link to Child (Student)
                         </h2>
                         <p className="text-sm text-gray-500 mb-4">
-                            Parents will receive an invitation to create their account and will be automatically linked to this student.
+                            Select the student this parent should be linked to. You can link more students later from the user management page.
                         </p>
 
-                        {/* Parent 1 */}
-                        <div className="border border-gray-200 rounded-xl p-4 mb-4">
-                            <h3 className="font-medium text-gray-800 mb-3">Parent/Guardian 1</h3>
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">Name</label>
-                                    <input
-                                        type="text"
-                                        value={formData.parent1_name}
-                                        onChange={(e) => setFormData(f => ({ ...f, parent1_name: e.target.value }))}
-                                        className="w-full p-3 border border-gray-300 rounded-lg text-gray-900"
-                                        placeholder="Parent name"
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">Relationship</label>
-                                    <select
-                                        value={formData.parent1_relationship}
-                                        onChange={(e) => setFormData(f => ({ ...f, parent1_relationship: e.target.value }))}
-                                        className="w-full p-3 border border-gray-300 rounded-lg text-gray-900 bg-white"
-                                    >
-                                        <option value="father">Father</option>
-                                        <option value="mother">Mother</option>
-                                        <option value="guardian">Guardian</option>
-                                        <option value="grandparent">Grandparent</option>
-                                        <option value="other">Other</option>
-                                    </select>
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
-                                    <input
-                                        type="email"
-                                        value={formData.parent1_email}
-                                        onChange={(e) => setFormData(f => ({ ...f, parent1_email: e.target.value }))}
-                                        className="w-full p-3 border border-gray-300 rounded-lg text-gray-900"
-                                        placeholder="parent@email.com"
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
-                                    <input
-                                        type="tel"
-                                        value={formData.parent1_phone}
-                                        onChange={(e) => setFormData(f => ({ ...f, parent1_phone: e.target.value }))}
-                                        className="w-full p-3 border border-gray-300 rounded-lg text-gray-900"
-                                        placeholder="+91 9876543210"
-                                    />
-                                </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Relationship</label>
+                                <select
+                                    value={formData.parent_relationship}
+                                    onChange={(e) => setFormData(f => ({ ...f, parent_relationship: e.target.value }))}
+                                    className="w-full p-3 border border-gray-300 rounded-lg text-gray-900 bg-white"
+                                >
+                                    <option value="father">Father</option>
+                                    <option value="mother">Mother</option>
+                                    <option value="guardian">Guardian</option>
+                                    <option value="grandparent">Grandparent</option>
+                                    <option value="other">Other</option>
+                                </select>
                             </div>
                         </div>
 
-                        {/* Parent 2 */}
-                        <div className="border border-gray-200 rounded-xl p-4">
-                            <h3 className="font-medium text-gray-800 mb-3">Parent/Guardian 2 (Optional)</h3>
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">Name</label>
+                        {/* Selected student chip - shown when a student is linked */}
+                        {formData.linked_student_id ? (
+                            <div className="flex items-center gap-3 p-4 bg-green-50 border border-green-200 rounded-xl mb-3">
+                                <div className="w-10 h-10 rounded-full bg-green-200 flex items-center justify-center text-green-800 font-bold">
+                                    {students.find(s => s.user_id === formData.linked_student_id)?.full_name.charAt(0) || '?'}
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                    <p className="font-semibold text-green-900">
+                                        {students.find(s => s.user_id === formData.linked_student_id)?.full_name}
+                                    </p>
+                                    <p className="text-xs text-green-700">
+                                        {(() => {
+                                            const s = students.find(s => s.user_id === formData.linked_student_id)
+                                            return s ? [s.class_name, s.section_name].filter(Boolean).join(' - ') || 'No class assigned' : ''
+                                        })()}
+                                    </p>
+                                </div>
+                                <CheckCircle className="w-5 h-5 text-green-600 flex-shrink-0" />
+                                <button
+                                    onClick={() => {
+                                        setFormData(f => ({ ...f, linked_student_id: '' }))
+                                        setStudentSearch('')
+                                    }}
+                                    className="p-1 text-green-600 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                                    title="Remove link"
+                                >
+                                    <X className="w-4 h-4" />
+                                </button>
+                            </div>
+                        ) : (
+                            /* Autocomplete search input */
+                            <div className="relative">
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Search Student</label>
+                                <div className="relative">
+                                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
                                     <input
                                         type="text"
-                                        value={formData.parent2_name}
-                                        onChange={(e) => setFormData(f => ({ ...f, parent2_name: e.target.value }))}
-                                        className="w-full p-3 border border-gray-300 rounded-lg text-gray-900"
-                                        placeholder="Parent name"
+                                        value={studentSearch}
+                                        onChange={(e) => setStudentSearch(e.target.value)}
+                                        className="w-full pl-10 p-3 border border-gray-300 rounded-lg text-gray-900 focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                                        placeholder="Start typing student name..."
+                                        autoComplete="off"
                                     />
+                                    {studentSearch && (
+                                        <button
+                                            onClick={() => setStudentSearch('')}
+                                            className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-gray-600"
+                                        >
+                                            <X className="w-4 h-4" />
+                                        </button>
+                                    )}
                                 </div>
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">Relationship</label>
-                                    <select
-                                        value={formData.parent2_relationship}
-                                        onChange={(e) => setFormData(f => ({ ...f, parent2_relationship: e.target.value }))}
-                                        className="w-full p-3 border border-gray-300 rounded-lg text-gray-900 bg-white"
-                                    >
-                                        <option value="mother">Mother</option>
-                                        <option value="father">Father</option>
-                                        <option value="guardian">Guardian</option>
-                                        <option value="grandparent">Grandparent</option>
-                                        <option value="other">Other</option>
-                                    </select>
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
-                                    <input
-                                        type="email"
-                                        value={formData.parent2_email}
-                                        onChange={(e) => setFormData(f => ({ ...f, parent2_email: e.target.value }))}
-                                        className="w-full p-3 border border-gray-300 rounded-lg text-gray-900"
-                                        placeholder="parent@email.com"
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
-                                    <input
-                                        type="tel"
-                                        value={formData.parent2_phone}
-                                        onChange={(e) => setFormData(f => ({ ...f, parent2_phone: e.target.value }))}
-                                        className="w-full p-3 border border-gray-300 rounded-lg text-gray-900"
-                                        placeholder="+91 9876543210"
-                                    />
-                                </div>
+
+                                {/* Dropdown results - only show when typing */}
+                                {studentSearch.length >= 1 && (
+                                    <div className="absolute z-20 left-0 right-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-xl max-h-60 overflow-y-auto">
+                                        {students
+                                            .filter(s =>
+                                                s.full_name.toLowerCase().includes(studentSearch.toLowerCase()) ||
+                                                (s.email && s.email.toLowerCase().includes(studentSearch.toLowerCase()))
+                                            )
+                                            .slice(0, 10)
+                                            .map(student => (
+                                                <button
+                                                    key={student.user_id}
+                                                    onClick={() => {
+                                                        setFormData(f => ({ ...f, linked_student_id: student.user_id }))
+                                                        setStudentSearch('')
+                                                    }}
+                                                    className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-green-50 transition-colors border-b border-gray-50 last:border-b-0"
+                                                >
+                                                    <div className="w-9 h-9 rounded-full bg-blue-100 flex items-center justify-center text-sm font-bold text-blue-700 flex-shrink-0">
+                                                        {student.full_name.charAt(0)}
+                                                    </div>
+                                                    <div className="flex-1 min-w-0">
+                                                        <p className="font-medium text-gray-900 truncate">{student.full_name}</p>
+                                                        <p className="text-xs text-gray-500 truncate">
+                                                            {[student.class_name, student.section_name].filter(Boolean).join(' - ') || 'No class assigned'}
+                                                            {student.email ? ` • ${student.email}` : ''}
+                                                        </p>
+                                                    </div>
+                                                    <ChevronDown className="w-4 h-4 text-gray-300 -rotate-90" />
+                                                </button>
+                                            ))}
+                                        {students.filter(s =>
+                                            s.full_name.toLowerCase().includes(studentSearch.toLowerCase()) ||
+                                            (s.email && s.email.toLowerCase().includes(studentSearch.toLowerCase()))
+                                        ).length === 0 && (
+                                                <div className="px-4 py-6 text-center">
+                                                    <Users className="w-8 h-8 text-gray-300 mx-auto mb-2" />
+                                                    <p className="text-sm text-gray-500">No students match "{studentSearch}"</p>
+                                                    <p className="text-xs text-gray-400 mt-1">Make sure students have been added to this school first.</p>
+                                                </div>
+                                            )}
+                                    </div>
+                                )}
+
+                                {/* Helper text */}
+                                {!studentSearch && students.length > 0 && (
+                                    <p className="text-xs text-gray-400 mt-1.5">
+                                        {students.length} student{students.length !== 1 ? 's' : ''} available. Type to search.
+                                    </p>
+                                )}
+                                {students.length === 0 && (
+                                    <p className="text-xs text-amber-600 mt-1.5">
+                                        ⚠ No students found in this school. Please add students first.
+                                    </p>
+                                )}
                             </div>
-                        </div>
+                        )}
                     </div>
                 )}
 
@@ -609,9 +602,7 @@ export default function AddUserPage() {
                         <div>
                             <h3 className="font-medium text-gray-900">Ready to add user?</h3>
                             <p className="text-sm text-gray-500">
-                                {userType === 'student' && formData.parent1_name
-                                    ? 'Student and parent accounts will be created and linked.'
-                                    : 'User will be created and can login immediately.'}
+                                User will be created and can login immediately.
                             </p>
                         </div>
                         <button

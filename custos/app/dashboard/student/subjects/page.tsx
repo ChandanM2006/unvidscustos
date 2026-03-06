@@ -1,8 +1,8 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useState, useEffect } from 'react'
 import { supabase, type User } from '@/lib/supabase'
-import { useRouter } from 'next/navigation'
+import { useSmartBack } from '@/lib/navigation'
 import {
     BookOpen, ArrowLeft, FileText, Target, Loader2, Play
 } from 'lucide-react'
@@ -21,7 +21,7 @@ interface SyllabusDoc {
 }
 
 export default function StudentSubjectsPage() {
-    const router = useRouter()
+    const { goBack, router } = useSmartBack('/dashboard/student')
     const [user, setUser] = useState<User | null>(null)
     const [subjects, setSubjects] = useState<Subject[]>([])
     const [syllabusDocs, setSyllabusDocs] = useState<Record<string, SyllabusDoc[]>>({})
@@ -109,7 +109,7 @@ export default function StudentSubjectsPage() {
             <header className="bg-white/5 backdrop-blur-lg border-b border-white/10 px-6 py-4">
                 <div className="max-w-4xl mx-auto flex items-center gap-4">
                     <button
-                        onClick={() => router.push('/dashboard/student')}
+                        onClick={goBack}
                         className="p-2 hover:bg-white/10 rounded-lg transition-colors"
                     >
                         <ArrowLeft className="w-5 h-5 text-green-300" />

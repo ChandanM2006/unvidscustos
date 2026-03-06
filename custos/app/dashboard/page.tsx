@@ -6,8 +6,27 @@ import { useRouter } from 'next/navigation'
 import {
     School as SchoolIcon, LogOut, Bell, Home, Users, BookOpen,
     Calendar, FileText, BarChart3, Settings, ClipboardCheck,
-    GraduationCap, Loader2, Radio
+    GraduationCap, Loader2, Radio, Newspaper, Clock, Camera,
+    Upload, PenTool, Sparkles, ChevronRight
 } from 'lucide-react'
+
+interface Post {
+    post_id: string
+    title: string | null
+    content: string | null
+    media_url: string | null
+    post_type: 'photo' | 'file' | 'blog'
+    created_at: string
+    author?: { full_name: string; role: string }
+}
+
+interface SchoolEvent {
+    event_id: string
+    title: string
+    event_date: string
+    event_type: string
+    color: string
+}
 
 export default function DashboardPage() {
     const router = useRouter()
@@ -19,6 +38,8 @@ export default function DashboardPage() {
 
     // Stats
     const [stats, setStats] = useState({ users: 0, classes: 0, subjects: 0 })
+    const [recentPosts, setRecentPosts] = useState<Post[]>([])
+    const [upcomingEvents, setUpcomingEvents] = useState<SchoolEvent[]>([])
 
     useEffect(() => {
         setMounted(true)
@@ -91,12 +112,40 @@ export default function DashboardPage() {
                 const { count: subjectsCount } = await supabase
                     .from('subjects')
                     .select('*', { count: 'exact', head: true })
+                    .eq('school_id', userData.school_id)
 
                 setStats({
                     users: usersCount || 0,
                     classes: classesCount || 0,
                     subjects: subjectsCount || 0
                 })
+
+                // Load recent posts
+                try {
+                    const res = await fetch(`/api/posts?school_id=${userData.school_id}`)
+                    const postData = await res.json()
+                    if (postData.posts) {
+                        setRecentPosts(postData.posts.slice(0, 3))
+                    }
+                } catch (e) {
+                    // Posts API may not be ready yet
+                    console.log('Posts not available yet')
+                }
+
+                // Load upcoming events
+                try {
+                    const today = new Date().toISOString().split('T')[0]
+                    const { data: eventData } = await supabase
+                        .from('school_events')
+                        .select('*')
+                        .eq('school_id', userData.school_id)
+                        .gte('event_date', today)
+                        .order('event_date', { ascending: true })
+                        .limit(5)
+                    if (eventData) setUpcomingEvents(eventData)
+                } catch (e) {
+                    console.log('Events not available yet')
+                }
             }
         } catch (error) {
             console.error('Auth check error:', error)
@@ -119,12 +168,14 @@ export default function DashboardPage() {
     }
 
     const quickActions = [
+        { name: 'Calendar', icon: Calendar, gradient: 'from-indigo-500 to-purple-600', path: '/dashboard/calendar' },
+        { name: 'Posts', icon: Newspaper, gradient: 'from-rose-500 to-orange-600', path: '/dashboard/posts' },
         { name: 'Live Classes', icon: Radio, gradient: 'from-red-500 to-pink-600', path: '/dashboard/live' },
         { name: 'Manage Users', icon: Users, gradient: 'from-blue-500 to-indigo-600', path: '/dashboard/manage/users' },
         { name: 'Classes', icon: GraduationCap, gradient: 'from-green-500 to-emerald-600', path: '/dashboard/manage/classes' },
         { name: 'Syllabus (AI)', icon: BookOpen, gradient: 'from-purple-500 to-pink-600', path: '/dashboard/manage/syllabus' },
         { name: 'Lesson Plans', icon: FileText, gradient: 'from-orange-500 to-red-600', path: '/dashboard/manage/lesson-plans' },
-        { name: 'Timetable', icon: Calendar, gradient: 'from-cyan-500 to-blue-600', path: '/dashboard/manage/timetable' },
+        { name: 'Timetable', icon: Clock, gradient: 'from-cyan-500 to-blue-600', path: '/dashboard/manage/timetable' },
         { name: 'Attendance', icon: ClipboardCheck, gradient: 'from-rose-500 to-pink-600', path: '/dashboard/manage/attendance' },
         { name: 'Report Cards', icon: BarChart3, gradient: 'from-amber-500 to-orange-600', path: '/dashboard/manage/report-cards' },
         { name: 'Notifications', icon: Bell, gradient: 'from-teal-500 to-cyan-600', path: '/dashboard/notifications' },
@@ -132,12 +183,14 @@ export default function DashboardPage() {
 
     const sidebarLinks = [
         { name: 'Dashboard', icon: Home, path: '/dashboard', active: true },
+        { name: 'Calendar', icon: Calendar, path: '/dashboard/calendar' },
+        { name: 'Posts', icon: Newspaper, path: '/dashboard/posts' },
         { name: 'Live Classes', icon: Radio, path: '/dashboard/live' },
         { name: 'Manage', icon: Settings, path: '/dashboard/manage' },
         { name: 'Users', icon: Users, path: '/dashboard/manage/users' },
         { name: 'Classes', icon: GraduationCap, path: '/dashboard/manage/classes' },
         { name: 'Syllabus', icon: BookOpen, path: '/dashboard/manage/syllabus' },
-        { name: 'Timetable', icon: Calendar, path: '/dashboard/manage/timetable' },
+        { name: 'Timetable', icon: Clock, path: '/dashboard/manage/timetable' },
         { name: 'Attendance', icon: ClipboardCheck, path: '/dashboard/manage/attendance' },
         { name: 'Report Cards', icon: BarChart3, path: '/dashboard/manage/report-cards' },
         { name: 'Notifications', icon: Bell, path: '/dashboard/notifications' },
@@ -275,6 +328,115 @@ export default function DashboardPage() {
                                 <p className="font-medium text-white">{action.name}</p>
                             </button>
                         ))}
+                    </div>
+
+                    {/* Recent Posts & Upcoming Events Grid */}
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+                        {/* Recent Posts */}
+                        <div className="bg-white/10 backdrop-blur-lg rounded-2xl border border-white/10 overflow-hidden">
+                            <div className="px-5 py-4 border-b border-white/10 flex items-center justify-between">
+                                <div className="flex items-center gap-2">
+                                    <Newspaper className="w-4 h-4 text-rose-400" />
+                                    <h4 className="font-semibold text-white text-sm">Recent Posts</h4>
+                                </div>
+                                <button
+                                    onClick={() => router.push('/dashboard/posts')}
+                                    className="text-xs text-rose-400 hover:text-rose-300 flex items-center gap-1 transition-colors"
+                                >
+                                    View All <ChevronRight className="w-3 h-3" />
+                                </button>
+                            </div>
+                            <div className="p-4 space-y-3">
+                                {recentPosts.length > 0 ? recentPosts.map(post => (
+                                    <div
+                                        key={post.post_id}
+                                        className="flex items-start gap-3 p-3 rounded-xl hover:bg-white/5 transition-colors cursor-pointer"
+                                        onClick={() => router.push('/dashboard/posts')}
+                                    >
+                                        <div className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 ${post.post_type === 'photo' ? 'bg-pink-500/20' :
+                                                post.post_type === 'file' ? 'bg-blue-500/20' : 'bg-amber-500/20'
+                                            }`}>
+                                            {post.post_type === 'photo' ? <Camera className="w-4 h-4 text-pink-400" /> :
+                                                post.post_type === 'file' ? <Upload className="w-4 h-4 text-blue-400" /> :
+                                                    <PenTool className="w-4 h-4 text-amber-400" />}
+                                        </div>
+                                        <div className="min-w-0 flex-1">
+                                            <p className="text-white text-sm font-medium truncate">
+                                                {post.title || (post.content ? post.content.substring(0, 60) + '...' : 'Untitled')}
+                                            </p>
+                                            <p className="text-white/40 text-xs mt-0.5">
+                                                {post.author?.full_name || 'Admin'} • {new Date(post.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                                            </p>
+                                        </div>
+                                    </div>
+                                )) : (
+                                    <div className="text-center py-6">
+                                        <Newspaper className="w-8 h-8 text-white/10 mx-auto mb-2" />
+                                        <p className="text-white/30 text-xs">No posts yet</p>
+                                        <button
+                                            onClick={() => router.push('/dashboard/posts')}
+                                            className="mt-2 text-xs text-rose-400 hover:text-rose-300"
+                                        >
+                                            Create your first post
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* Upcoming Events */}
+                        <div className="bg-white/10 backdrop-blur-lg rounded-2xl border border-white/10 overflow-hidden">
+                            <div className="px-5 py-4 border-b border-white/10 flex items-center justify-between">
+                                <div className="flex items-center gap-2">
+                                    <Sparkles className="w-4 h-4 text-amber-400" />
+                                    <h4 className="font-semibold text-white text-sm">Upcoming Events</h4>
+                                </div>
+                                <button
+                                    onClick={() => router.push('/dashboard/calendar')}
+                                    className="text-xs text-indigo-400 hover:text-indigo-300 flex items-center gap-1 transition-colors"
+                                >
+                                    Calendar <ChevronRight className="w-3 h-3" />
+                                </button>
+                            </div>
+                            <div className="p-4 space-y-3">
+                                {upcomingEvents.length > 0 ? upcomingEvents.map(event => (
+                                    <div
+                                        key={event.event_id}
+                                        className="flex items-center gap-3 p-3 rounded-xl hover:bg-white/5 transition-colors cursor-pointer"
+                                        onClick={() => router.push('/dashboard/calendar')}
+                                    >
+                                        <div
+                                            className="w-9 h-9 rounded-lg flex items-center justify-center text-xs font-bold flex-shrink-0"
+                                            style={{ backgroundColor: event.color + '20', color: event.color }}
+                                        >
+                                            {new Date(event.event_date + 'T00:00:00').getDate()}
+                                        </div>
+                                        <div className="min-w-0 flex-1">
+                                            <p className="text-white text-sm font-medium truncate">{event.title}</p>
+                                            <p className="text-white/40 text-xs mt-0.5">
+                                                {new Date(event.event_date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+                                                <span className="ml-2 uppercase tracking-wider text-[10px]" style={{ color: event.color }}>
+                                                    {event.event_type === 'holiday' ? '🏖️ Holiday' :
+                                                        event.event_type === 'occasion' ? '🎉 Occasion' :
+                                                            event.event_type === 'exam_period' ? '📝 Exam' : '📌 Event'}
+                                                </span>
+                                            </p>
+                                        </div>
+                                    </div>
+                                )) : (
+                                    <div className="text-center py-6">
+                                        <Calendar className="w-8 h-8 text-white/10 mx-auto mb-2" />
+                                        <p className="text-white/30 text-xs">No upcoming events</p>
+                                        <button
+                                            onClick={() => router.push('/dashboard/calendar')}
+                                            className="mt-2 text-xs text-indigo-400 hover:text-indigo-300"
+                                        >
+                                            Add an event
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
                     </div>
 
                     {/* Info Banner */}

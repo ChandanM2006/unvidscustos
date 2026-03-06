@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { useRouter } from 'next/navigation'
+import { useSmartBack } from '@/lib/navigation'
 import { supabase } from '@/lib/supabase'
 import {
     ArrowLeft, MessageCircle, Send, User, Search,
@@ -40,7 +40,7 @@ interface Conversation {
 }
 
 export default function TeacherMessagesPage() {
-    const router = useRouter()
+    const { goBack, router } = useSmartBack('/dashboard/teacher')
     const messagesEndRef = useRef<HTMLDivElement>(null)
 
     const [loading, setLoading] = useState(true)
@@ -253,7 +253,7 @@ export default function TeacherMessagesPage() {
             <header className="bg-white/5 backdrop-blur-lg border-b border-white/10 px-6 py-4">
                 <div className="max-w-7xl mx-auto flex items-center justify-between">
                     <div className="flex items-center gap-4">
-                        <button onClick={() => router.push('/dashboard/teacher')} className="p-2 hover:bg-white/10 rounded-lg">
+                        <button onClick={goBack} className="p-2 hover:bg-white/10 rounded-lg">
                             <ArrowLeft className="w-5 h-5 text-blue-300" />
                         </button>
                         <div>
@@ -295,9 +295,9 @@ export default function TeacherMessagesPage() {
                                     key={idx}
                                     onClick={() => setSelectedConversation(conv)}
                                     className={`w-full p-4 text-left hover:bg-white/10 border-b border-white/10 ${selectedConversation?.parent.user_id === conv.parent.user_id &&
-                                            selectedConversation?.student.user_id === conv.student.user_id
-                                            ? 'bg-white/10'
-                                            : ''
+                                        selectedConversation?.student.user_id === conv.student.user_id
+                                        ? 'bg-white/10'
+                                        : ''
                                         }`}
                                 >
                                     <div className="flex items-center gap-3">
@@ -375,8 +375,8 @@ export default function TeacherMessagesPage() {
                                         >
                                             <div
                                                 className={`max-w-[70%] p-3 rounded-2xl ${msg.sender_role === 'teacher'
-                                                        ? 'bg-blue-600 text-white rounded-br-sm'
-                                                        : 'bg-white/10 text-white rounded-bl-sm'
+                                                    ? 'bg-blue-600 text-white rounded-br-sm'
+                                                    : 'bg-white/10 text-white rounded-bl-sm'
                                                     }`}
                                             >
                                                 <p className="whitespace-pre-wrap">{msg.message}</p>

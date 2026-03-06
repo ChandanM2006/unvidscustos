@@ -62,10 +62,7 @@ export default function ParentChildDetailPage() {
     const [summary, setSummary] = useState<ActivitySummary>({
         streak: 0, total_points: 0, time_spent_week: 0, avg_time_per_day: 0, total_days_completed: 0
     })
-    const [showMessageModal, setShowMessageModal] = useState(false)
-    const [messageText, setMessageText] = useState('')
-    const [messageSent, setMessageSent] = useState(false)
-    const [sending, setSending] = useState(false)
+
 
     useEffect(() => {
         if (childId) loadChildDetail()
@@ -83,7 +80,7 @@ export default function ParentChildDetailPage() {
                 .single()
 
             if (!parentUser || parentUser.role !== 'parent') {
-                router.push('/dashboard')
+                router.replace('/dashboard/redirect')
                 return
             }
 
@@ -283,33 +280,6 @@ export default function ParentChildDetailPage() {
         })
     }
 
-    async function sendMessage() {
-        if (!messageText.trim() || !child) return
-        setSending(true)
-        try {
-            // Create notification for teacher (simplified)
-            await fetch('/api/notifications', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    user_id: child.student_id, // Will route to class teacher
-                    title: '📩 Parent Message',
-                    message: messageText.trim(),
-                    type: 'info',
-                })
-            })
-            setMessageSent(true)
-            setTimeout(() => {
-                setShowMessageModal(false)
-                setMessageSent(false)
-                setMessageText('')
-            }, 2000)
-        } catch (err) {
-            console.error('Error sending message:', err)
-        } finally {
-            setSending(false)
-        }
-    }
 
     function getStatusIcon(status: string) {
         switch (status) {
@@ -417,9 +387,9 @@ export default function ParentChildDetailPage() {
                             <div key={day.date} className="flex-1 text-center">
                                 <p className="text-[10px] text-purple-300/50 mb-2">{day.label}</p>
                                 <div className={`w-10 h-10 mx-auto rounded-xl flex items-center justify-center ${day.status === 'completed' ? 'bg-emerald-500/20 border border-emerald-500/30' :
-                                        day.status === 'pending' ? 'bg-amber-500/20 border border-amber-500/30' :
-                                            day.status === 'missed' ? 'bg-red-500/20 border border-red-500/30' :
-                                                'bg-white/5 border border-white/10'
+                                    day.status === 'pending' ? 'bg-amber-500/20 border border-amber-500/30' :
+                                        day.status === 'missed' ? 'bg-red-500/20 border border-red-500/30' :
+                                            'bg-white/5 border border-white/10'
                                     }`}>
                                     <span className="text-lg">{getStatusEmoji(day.status)}</span>
                                 </div>
@@ -536,32 +506,6 @@ export default function ParentChildDetailPage() {
                     )}
                 </section>
 
-                {/* Contact Teacher */}
-                <section className="bg-white/[0.06] backdrop-blur-xl border border-white/10 rounded-2xl p-5">
-                    <h3 className="text-sm font-semibold text-purple-300/70 uppercase tracking-wider mb-4 flex items-center gap-2">
-                        <Phone className="w-4 h-4 text-fuchsia-400" />
-                        Need to Discuss?
-                    </h3>
-
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        <button
-                            onClick={() => setShowMessageModal(true)}
-                            className="bg-fuchsia-500/20 border border-fuchsia-500/30 rounded-xl p-4 text-left hover:bg-fuchsia-500/30 transition-colors"
-                        >
-                            <MessageSquare className="w-6 h-6 text-fuchsia-400 mb-2" />
-                            <p className="text-sm font-medium text-white">Message Class Teacher</p>
-                            <p className="text-[10px] text-purple-300/50">Send a direct message</p>
-                        </button>
-                        <button
-                            onClick={() => setShowMessageModal(true)}
-                            className="bg-indigo-500/20 border border-indigo-500/30 rounded-xl p-4 text-left hover:bg-indigo-500/30 transition-colors"
-                        >
-                            <Calendar className="w-6 h-6 text-indigo-400 mb-2" />
-                            <p className="text-sm font-medium text-white">Schedule Meeting</p>
-                            <p className="text-[10px] text-purple-300/50">Request parent-teacher meeting</p>
-                        </button>
-                    </div>
-                </section>
 
                 {/* Privacy Note */}
                 <div className="bg-white/[0.03] border border-white/5 rounded-xl p-4 flex items-start gap-3">
@@ -577,58 +521,6 @@ export default function ParentChildDetailPage() {
                 </div>
             </main>
 
-            {/* Message Modal */}
-            {showMessageModal && (
-                <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-                    <div className="bg-slate-900 border border-white/10 rounded-2xl p-6 w-full max-w-md">
-                        {messageSent ? (
-                            <div className="text-center py-8">
-                                <CheckCircle className="w-16 h-16 text-emerald-400 mx-auto mb-4" />
-                                <p className="text-lg font-bold text-white">Message Sent!</p>
-                                <p className="text-sm text-purple-300/60 mt-2">
-                                    The teacher will respond soon.
-                                </p>
-                            </div>
-                        ) : (
-                            <>
-                                <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
-                                    <MessageSquare className="w-5 h-5 text-fuchsia-400" />
-                                    Message Teacher
-                                </h3>
-                                <p className="text-xs text-purple-300/60 mb-4">
-                                    About: {child.full_name} ({child.class_name})
-                                </p>
-                                <textarea
-                                    value={messageText}
-                                    onChange={(e) => setMessageText(e.target.value)}
-                                    placeholder="Type your message to the class teacher..."
-                                    className="w-full bg-white/10 border border-white/10 rounded-xl p-3 text-white placeholder-purple-300/30 text-sm resize-none h-32 focus:outline-none focus:ring-2 focus:ring-fuchsia-500/50"
-                                />
-                                <div className="flex gap-3 mt-4">
-                                    <button
-                                        onClick={() => setShowMessageModal(false)}
-                                        className="flex-1 px-4 py-2.5 bg-white/10 text-white rounded-xl text-sm font-medium hover:bg-white/20 transition-colors"
-                                    >
-                                        Cancel
-                                    </button>
-                                    <button
-                                        onClick={sendMessage}
-                                        disabled={!messageText.trim() || sending}
-                                        className="flex-1 px-4 py-2.5 bg-fuchsia-500 text-white rounded-xl text-sm font-medium hover:bg-fuchsia-400 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                                    >
-                                        {sending ? (
-                                            <Loader2 className="w-4 h-4 animate-spin" />
-                                        ) : (
-                                            <MessageSquare className="w-4 h-4" />
-                                        )}
-                                        Send
-                                    </button>
-                                </div>
-                            </>
-                        )}
-                    </div>
-                </div>
-            )}
         </div>
     )
 }

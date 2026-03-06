@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
+import { useSmartBack } from '@/lib/navigation'
 import { supabase } from '@/lib/supabase'
 import {
     ArrowLeft, ArrowUpCircle, Users, CheckCircle, XCircle,
@@ -38,7 +38,7 @@ interface PromotionCandidate extends Student {
 }
 
 export default function StudentPromotionPage() {
-    const router = useRouter()
+    const { goBack, router } = useSmartBack('/dashboard/manage')
 
     const [loading, setLoading] = useState(true)
     const [processing, setProcessing] = useState(false)
@@ -88,27 +88,29 @@ export default function StudentPromotionPage() {
 
             const { data: userData } = await supabase
                 .from('users')
-                .select('role')
+                .select('role, school_id')
                 .eq('email', session.user.email)
                 .single()
 
             if (!userData || !['super_admin', 'sub_admin'].includes(userData.role)) {
                 alert('Only administrators can access this page.')
-                router.push('/dashboard')
+                router.replace('/dashboard/redirect')
                 return
             }
 
-            // Load classes
+            // Load classes for this school
             const { data: classData } = await supabase
                 .from('classes')
                 .select('*')
+                .eq('school_id', userData.school_id)
                 .order('grade_level', { ascending: true })
             setClasses(classData || [])
 
-            // Load academic years
+            // Load academic years for this school
             const { data: yearData } = await supabase
                 .from('academic_years')
                 .select('*')
+                .eq('school_id', userData.school_id)
                 .order('created_at', { ascending: false })
             setAcademicYears(yearData || [])
 
@@ -295,7 +297,7 @@ export default function StudentPromotionPage() {
                 <div className="flex items-center justify-between mb-8">
                     <div className="flex items-center gap-4">
                         <button
-                            onClick={() => router.push('/dashboard/manage')}
+                            onClick={goBack}
                             className="p-2 hover:bg-white rounded-lg transition-colors"
                         >
                             <ArrowLeft className="w-6 h-6 text-gray-600" />

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { supabase, type User } from '@/lib/supabase'
-import { useRouter } from 'next/navigation'
+import { useSmartBack } from '@/lib/navigation'
 import {
     CheckCircle, ArrowLeft, Loader2, Calendar, XCircle, Clock
 } from 'lucide-react'
@@ -14,7 +14,7 @@ interface AttendanceRecord {
 }
 
 export default function ParentAttendancePage() {
-    const router = useRouter()
+    const { goBack, router } = useSmartBack('/dashboard/parent')
     const [loading, setLoading] = useState(true)
     const [records, setRecords] = useState<AttendanceRecord[]>([])
     const [selectedChild, setSelectedChild] = useState<string>('all')
@@ -127,7 +127,7 @@ export default function ParentAttendancePage() {
         <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
             <header className="bg-white/5 backdrop-blur-lg border-b border-white/10 px-6 py-4">
                 <div className="max-w-4xl mx-auto flex items-center gap-4">
-                    <button onClick={() => router.push('/dashboard/parent')} className="p-2 hover:bg-white/10 rounded-lg">
+                    <button onClick={goBack} className="p-2 hover:bg-white/10 rounded-lg">
                         <ArrowLeft className="w-5 h-5 text-purple-300" />
                     </button>
                     <div className="flex-1">
@@ -185,7 +185,7 @@ export default function ParentAttendancePage() {
                                 <div key={i} className="p-4 flex items-center justify-between hover:bg-white/5">
                                     <div className="flex items-center gap-4">
                                         <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${record.status === 'present' ? 'bg-green-500/20' :
-                                                record.status === 'absent' ? 'bg-red-500/20' : 'bg-yellow-500/20'
+                                            record.status === 'absent' ? 'bg-red-500/20' : 'bg-yellow-500/20'
                                             }`}>
                                             {record.status === 'present' && <CheckCircle className="w-5 h-5 text-green-400" />}
                                             {record.status === 'absent' && <XCircle className="w-5 h-5 text-red-400" />}
@@ -197,7 +197,7 @@ export default function ParentAttendancePage() {
                                         </div>
                                     </div>
                                     <span className={`px-3 py-1 rounded-full text-sm font-medium ${record.status === 'present' ? 'bg-green-500/20 text-green-400' :
-                                            record.status === 'absent' ? 'bg-red-500/20 text-red-400' : 'bg-yellow-500/20 text-yellow-400'
+                                        record.status === 'absent' ? 'bg-red-500/20 text-red-400' : 'bg-yellow-500/20 text-yellow-400'
                                         }`}>
                                         {record.status.charAt(0).toUpperCase() + record.status.slice(1)}
                                     </span>

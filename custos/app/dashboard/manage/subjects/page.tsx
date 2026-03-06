@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
-import { BookOpen, Plus, Edit2, Trash2, CheckSquare, Square } from 'lucide-react'
+import { BookOpen, Plus, Edit2, Trash2, CheckSquare, Square, User } from 'lucide-react'
 
 interface Subject {
     subject_id: string
@@ -10,8 +10,15 @@ interface Subject {
     code: string
     description: string
     is_active: boolean
+    teacher_id: string | null
     created_at: string
     assignments?: ClassSectionAssignment[]
+}
+
+interface Teacher {
+    user_id: string
+    full_name: string
+    email: string
 }
 
 interface Class {
@@ -37,16 +44,19 @@ export default function SubjectsManagement() {
     const [subjects, setSubjects] = useState<Subject[]>([])
     const [classes, setClasses] = useState<Class[]>([])
     const [sections, setSections] = useState<Section[]>([])
+    const [teachers, setTeachers] = useState<Teacher[]>([])
     const [loading, setLoading] = useState(true)
     const [showModal, setShowModal] = useState(false)
     const [editingSubject, setEditingSubject] = useState<Subject | null>(null)
     const [mounted, setMounted] = useState(false)
+    const [currentSchoolId, setCurrentSchoolId] = useState<string | null>(null)
 
     const [formData, setFormData] = useState({
         name: '',
         code: '',
         description: '',
         is_active: true,
+        teacher_id: '',
         assignments: [] as { class_id: string; section_id: string }[]
     })
 
@@ -67,7 +77,7 @@ export default function SubjectsManagement() {
 
             const { data: userData } = await supabase
                 .from('users')
-                .select('role')
+                .select('role, school_id')
                 .eq('email', session.user.email)
                 .single()
 
@@ -77,28 +87,47 @@ export default function SubjectsManagement() {
                 return
             }
 
-            // Load classes
+            setCurrentSchoolId(userData.school_id)
+
+            // Load classes for this school only
             const { data: classesData, error: classesError } = await supabase
                 .from('classes')
                 .select('*')
+                .eq('school_id', userData.school_id)
                 .order('grade_level')
 
             if (classesError) throw classesError
             setClasses(classesData || [])
 
-            // Load sections
-            const { data: sectionsData, error: sectionsError } = await supabase
-                .from('sections')
-                .select('*')
-                .order('name')
+            // Load sections for this school's classes only
+            const classIds = classesData?.map(c => c.class_id) || []
+            let sectionsData: any[] = []
+            if (classIds.length > 0) {
+                const { data: sData, error: sectionsError } = await supabase
+                    .from('sections')
+                    .select('*')
+                    .in('class_id', classIds)
+                    .order('name')
 
-            if (sectionsError) throw sectionsError
-            setSections(sectionsData || [])
+                if (sectionsError) throw sectionsError
+                sectionsData = sData || []
+            }
+            setSections(sectionsData)
 
-            // Load subjects with their assignments
+            // Load teachers for this school
+            const { data: teachersData } = await supabase
+                .from('users')
+                .select('user_id, full_name, email')
+                .eq('school_id', userData.school_id)
+                .eq('role', 'teacher')
+                .order('full_name')
+            setTeachers(teachersData || [])
+
+            // Load subjects for this school only
             const { data: subjectsData, error: subjectsError } = await supabase
                 .from('subjects')
                 .select('*')
+                .eq('school_id', userData.school_id)
                 .order('name')
 
             if (subjectsError) throw subjectsError
@@ -153,14 +182,17 @@ export default function SubjectsManagement() {
 
             if (editingSubject) {
                 // Update subject
+                const updateData: any = {
+                    name: formData.name,
+                    code: formData.code,
+                    description: formData.description,
+                    is_active: formData.is_active,
+                }
+                if (formData.teacher_id) updateData.teacher_id = formData.teacher_id
+
                 const { error } = await supabase
                     .from('subjects')
-                    .update({
-                        name: formData.name,
-                        code: formData.code,
-                        description: formData.description,
-                        is_active: formData.is_active
-                    })
+                    .update(updateData)
                     .eq('subject_id', editingSubject.subject_id)
 
                 if (error) throw error
@@ -173,14 +205,18 @@ export default function SubjectsManagement() {
                     .eq('subject_id', subjectId)
             } else {
                 // Create new subject
+                const insertData: any = {
+                    name: formData.name,
+                    code: formData.code,
+                    description: formData.description,
+                    is_active: formData.is_active,
+                    school_id: currentSchoolId,
+                }
+                if (formData.teacher_id) insertData.teacher_id = formData.teacher_id
+
                 const { data, error } = await supabase
                     .from('subjects')
-                    .insert([{
-                        name: formData.name,
-                        code: formData.code,
-                        description: formData.description,
-                        is_active: formData.is_active
-                    }])
+                    .insert([insertData])
                     .select()
                     .single()
 
@@ -238,6 +274,7 @@ export default function SubjectsManagement() {
             code: '',
             description: '',
             is_active: true,
+            teacher_id: '',
             assignments: []
         })
     }
@@ -249,6 +286,7 @@ export default function SubjectsManagement() {
             code: subject.code || '',
             description: subject.description || '',
             is_active: subject.is_active,
+            teacher_id: subject.teacher_id || '',
             assignments: subject.assignments?.map(a => ({
                 class_id: a.class_id,
                 section_id: a.section_id
@@ -382,6 +420,16 @@ export default function SubjectsManagement() {
                                         <p className="text-gray-600 text-sm mb-4 line-clamp-2">{subject.description}</p>
                                     )}
 
+                                    {/* Teacher */}
+                                    {subject.teacher_id && (
+                                        <div className="mb-3 flex items-center gap-2">
+                                            <User className="w-4 h-4 text-indigo-500" />
+                                            <span className="text-sm text-indigo-700 font-medium">
+                                                {teachers.find(t => t.user_id === subject.teacher_id)?.full_name || 'Unknown Teacher'}
+                                            </span>
+                                        </div>
+                                    )}
+
                                     <div className="mb-4">
                                         <p className="text-xs text-gray-500 mb-2 font-semibold">Assigned to:</p>
                                         <div className="flex flex-wrap gap-1">
@@ -424,12 +472,12 @@ export default function SubjectsManagement() {
 
             {/* Modal */}
             {showModal && (
-                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4 overflow-y-auto">
-                    <div className="bg-white rounded-2xl shadow-xl p-8 max-w-4xl w-full mx-4 my-8">
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+                    <div className="bg-white rounded-2xl shadow-xl p-8 max-w-4xl w-full mx-4 max-h-[90vh] overflow-y-auto">
                         <h2 className="text-2xl font-bold text-gray-900 mb-6">
                             {editingSubject ? 'Edit Subject' : 'Create New Subject'}
                         </h2>
-                        <form onSubmit={handleSubmit} className="space-y-6">
+                        <form onSubmit={handleSubmit} className="space-y-5">
                             <div className="grid grid-cols-2 gap-4">
                                 <div>
                                     <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -471,11 +519,36 @@ export default function SubjectsManagement() {
                                 />
                             </div>
 
+                            {/* Assign Teacher */}
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-2">
+                                    Assign Teacher
+                                </label>
+                                <div className="relative">
+                                    <User className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                                    <select
+                                        value={formData.teacher_id}
+                                        onChange={(e) => setFormData({ ...formData, teacher_id: e.target.value })}
+                                        className="w-full pl-10 px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900 bg-white appearance-none"
+                                    >
+                                        <option value="">No teacher assigned</option>
+                                        {teachers.map(t => (
+                                            <option key={t.user_id} value={t.user_id}>
+                                                {t.full_name} ({t.email})
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+                                {teachers.length === 0 && (
+                                    <p className="text-xs text-amber-600 mt-1">⚠ No teachers found. Add teachers first from User Management.</p>
+                                )}
+                            </div>
+
                             <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-3">
                                     Assign to Class & Sections * ({formData.assignments.length} selected)
                                 </label>
-                                <div className="border-2 border-gray-200 rounded-lg p-4 max-h-96 overflow-y-auto bg-gray-50">
+                                <div className="border-2 border-gray-200 rounded-lg p-4 max-h-48 overflow-y-auto bg-gray-50">
                                     {classSections.length === 0 ? (
                                         <p className="text-gray-500 text-center py-8">
                                             ⚠️ No classes or sections found. Please create classes and sections first!

@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
+import { useSmartBack } from '@/lib/navigation'
 import { supabase } from '@/lib/supabase'
 import { Plus, Calendar, BookOpen, Clock, MoreVertical, Search, Filter } from 'lucide-react'
 
@@ -20,7 +20,7 @@ interface LessonPlan {
 }
 
 export default function LessonPlansListPage() {
-    const router = useRouter()
+    const { goBack, router } = useSmartBack('/dashboard/manage')
     const [plans, setPlans] = useState<LessonPlan[]>([])
     const [loading, setLoading] = useState(true)
 
@@ -39,13 +39,37 @@ export default function LessonPlansListPage() {
 
             const { data: userData } = await supabase
                 .from('users')
-                .select('role')
+                .select('role, school_id')
                 .eq('email', session.user.email)
                 .single()
 
             if (!userData || !['super_admin', 'sub_admin', 'teacher'].includes(userData.role)) {
                 alert('You do not have permission to access this page.')
-                router.push('/dashboard')
+                router.replace('/dashboard/redirect')
+                return
+            }
+
+            // Get subject IDs for this school
+            const { data: schoolSubjects } = await supabase
+                .from('subjects')
+                .select('subject_id')
+                .eq('school_id', userData.school_id)
+
+            const subjectIds = schoolSubjects?.map(s => s.subject_id) || []
+
+            // Get document IDs for this school's subjects
+            let documentIds: string[] = []
+            if (subjectIds.length > 0) {
+                const { data: docs } = await supabase
+                    .from('syllabus_documents')
+                    .select('document_id')
+                    .in('subject_id', subjectIds)
+                documentIds = docs?.map(d => d.document_id) || []
+            }
+
+            if (documentIds.length === 0) {
+                setPlans([])
+                setLoading(false)
                 return
             }
 
@@ -58,6 +82,7 @@ export default function LessonPlansListPage() {
                         subjects (name)
                     )
                 `)
+                .in('document_id', documentIds)
                 .order('created_at', { ascending: false })
 
             if (error) throw error

@@ -1,7 +1,8 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { useRouter, useParams } from 'next/navigation'
+import { useParams } from 'next/navigation'
+import { useSmartBack } from '@/lib/navigation'
 import { supabase } from '@/lib/supabase'
 import {
     ArrowLeft, Loader2, Brain, TrendingUp, TrendingDown, Flame,
@@ -66,7 +67,7 @@ interface DeepDiveData {
 // ─── Component ──────────────────────────────────────────
 
 export default function StudentDetailPage() {
-    const router = useRouter()
+    const { goBack, router } = useSmartBack('/dashboard/teacher/performance')
     const params = useParams()
     const studentId = params.id as string
 
@@ -168,7 +169,7 @@ export default function StudentDetailPage() {
                     <AlertTriangle className="w-12 h-12 text-red-400 mx-auto mb-4" />
                     <p className="text-red-300">{error || 'Student not found'}</p>
                     <button
-                        onClick={() => router.back()}
+                        onClick={goBack}
                         className="mt-4 px-6 py-2 bg-white/10 rounded-xl text-white text-sm hover:bg-white/20"
                     >
                         Go Back
@@ -190,7 +191,7 @@ export default function StudentDetailPage() {
                 <div className="max-w-4xl mx-auto flex items-center justify-between">
                     <div className="flex items-center gap-3">
                         <button
-                            onClick={() => router.back()}
+                            onClick={goBack}
                             className="p-2 hover:bg-white/10 rounded-lg transition-colors"
                         >
                             <ArrowLeft className="w-5 h-5 text-blue-300" />

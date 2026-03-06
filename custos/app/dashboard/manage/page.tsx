@@ -1,10 +1,10 @@
 'use client'
 
-import { useRouter } from 'next/navigation'
-import { ArrowLeft, School, Users, Grid, Palette, BookOpen, Upload, Calendar, ClipboardList, Layers, GraduationCap, CalendarCheck, Clock, Award } from 'lucide-react'
+import { useSmartBack } from '@/lib/navigation'
+import { ArrowLeft, School, Users, Grid, Palette, BookOpen, Upload, Calendar, GraduationCap, Clock, Award, IndianRupee } from 'lucide-react'
 
 export default function ManagePage() {
-    const router = useRouter()
+    const { goBack, router } = useSmartBack('/dashboard')
 
     const modules = [
         {
@@ -57,32 +57,11 @@ export default function ManagePage() {
             color: 'from-green-500 to-teal-500'
         },
         {
-            title: 'Lesson Plans',
-            description: 'AI-generated schedules and curriculum',
-            icon: <ClipboardList className="w-8 h-8" />,
-            path: '/dashboard/manage/lesson-plans',
-            color: 'from-pink-500 to-rose-500'
-        },
-        {
-            title: 'Topics & Resources',
-            description: 'AI-powered study materials and MCQs',
-            icon: <Layers className="w-8 h-8" />,
-            path: '/dashboard/manage/topics',
-            color: 'from-cyan-500 to-blue-500'
-        },
-        {
             title: 'Student Promotions',
             description: 'Promote students to next academic year',
             icon: <GraduationCap className="w-8 h-8" />,
             path: '/dashboard/manage/promotions',
             color: 'from-emerald-500 to-green-500'
-        },
-        {
-            title: 'Attendance',
-            description: 'Mark and track daily attendance',
-            icon: <CalendarCheck className="w-8 h-8" />,
-            path: '/dashboard/manage/attendance',
-            color: 'from-teal-500 to-cyan-500'
         },
         {
             title: 'Timetable',
@@ -97,6 +76,20 @@ export default function ManagePage() {
             icon: <Award className="w-8 h-8" />,
             path: '/dashboard/manage/report-cards',
             color: 'from-rose-500 to-pink-500'
+        },
+        {
+            title: 'Bulk Import',
+            description: 'Import students, teachers via CSV',
+            icon: <Upload className="w-8 h-8" />,
+            path: '/dashboard/manage/bulk-import',
+            color: 'from-slate-500 to-gray-600'
+        },
+        {
+            title: 'Fee Management',
+            description: 'Set up fee structures & collect payments via Razorpay',
+            icon: <IndianRupee className="w-8 h-8" />,
+            path: '/dashboard/manage/fees',
+            color: 'from-green-500 to-emerald-600'
         }
     ]
 
@@ -107,7 +100,7 @@ export default function ManagePage() {
                 <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                     <div className="flex items-center justify-between h-16">
                         <button
-                            onClick={() => router.push('/dashboard')}
+                            onClick={goBack}
                             className="flex items-center space-x-2 text-gray-600 hover:text-gray-900 transition-colors"
                         >
                             <ArrowLeft className="w-5 h-5" />

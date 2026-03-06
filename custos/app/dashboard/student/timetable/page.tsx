@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { supabase, type User } from '@/lib/supabase'
-import { useRouter } from 'next/navigation'
+import { useSmartBack } from '@/lib/navigation'
 import {
     Calendar, ArrowLeft, Loader2, Clock
 } from 'lucide-react'
@@ -15,7 +15,7 @@ interface TimetableEntry {
 }
 
 export default function StudentTimetablePage() {
-    const router = useRouter()
+    const { goBack, router } = useSmartBack('/dashboard/student')
     const [user, setUser] = useState<User | null>(null)
     const [loading, setLoading] = useState(true)
     const [selectedDay, setSelectedDay] = useState(new Date().getDay() || 1)
@@ -62,28 +62,34 @@ export default function StudentTimetablePage() {
         if (!user?.class_id) return
 
         try {
-            const { data } = await supabase
+            let query = supabase
                 .from('timetable_entries')
                 .select(`
-                    entry_id,
-                    timetable_slots (start_time, end_time, day_of_week),
+                    entry_id, day_of_week, room_number,
+                    timetable_slots (start_time, end_time, slot_name, is_break),
                     subjects (name),
-                    users!timetable_entries_teacher_id_fkey (full_name)
+                    users:teacher_id (full_name)
                 `)
                 .eq('class_id', user.class_id)
+                .eq('day_of_week', selectedDay)
+
+            if (user.section_id) {
+                query = query.eq('section_id', user.section_id)
+            }
+
+            const { data } = await query
 
             if (data) {
-                const filtered = data
-                    .filter((entry: any) => entry.timetable_slots?.day_of_week === selectedDay)
+                const formatted = data
                     .map((entry: any) => ({
                         time: entry.timetable_slots?.start_time || 'TBD',
                         subject: entry.subjects?.name || 'Subject',
                         teacher: entry.users?.full_name || 'Teacher',
-                        room: 'Room TBD'
+                        room: entry.room_number || ''
                     }))
                     .sort((a: TimetableEntry, b: TimetableEntry) => a.time.localeCompare(b.time))
 
-                setSchedule(filtered)
+                setSchedule(formatted)
             }
         } catch (error) {
             console.error('Error loading timetable:', error)
@@ -104,7 +110,7 @@ export default function StudentTimetablePage() {
             <header className="bg-white/5 backdrop-blur-lg border-b border-white/10 px-6 py-4">
                 <div className="max-w-4xl mx-auto flex items-center gap-4">
                     <button
-                        onClick={() => router.push('/dashboard/student')}
+                        onClick={goBack}
                         className="p-2 hover:bg-white/10 rounded-lg transition-colors"
                     >
                         <ArrowLeft className="w-5 h-5 text-green-300" />
@@ -127,8 +133,8 @@ export default function StudentTimetablePage() {
                             key={day}
                             onClick={() => setSelectedDay(index)}
                             className={`px-4 py-2 rounded-xl font-medium whitespace-nowrap transition-all ${selectedDay === index
-                                    ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white'
-                                    : 'bg-white/10 text-white/70 hover:bg-white/20'
+                                ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white'
+                                : 'bg-white/10 text-white/70 hover:bg-white/20'
                                 }`}
                         >
                             {day}

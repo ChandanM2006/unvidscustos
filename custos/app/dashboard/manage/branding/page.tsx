@@ -2,11 +2,11 @@
 
 import { useState, useEffect } from 'react'
 import { supabase, type School } from '@/lib/supabase'
-import { useRouter } from 'next/navigation'
+import { useSmartBack } from '@/lib/navigation'
 import { Upload, Save, ArrowLeft } from 'lucide-react'
 
 export default function BrandingPage() {
-    const router = useRouter()
+    const { goBack, router } = useSmartBack('/dashboard/manage')
     const [loading, setLoading] = useState(false)
     const [school, setSchool] = useState<School | null>(null)
     const [formData, setFormData] = useState({
@@ -91,7 +91,7 @@ export default function BrandingPage() {
             }
 
             alert('School branding saved successfully!')
-            router.push('/dashboard')
+            router.replace('/dashboard')
         } catch (error) {
             console.error('Error saving school data:', error)
             alert('Failed to save school branding')
@@ -106,7 +106,7 @@ export default function BrandingPage() {
                 <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                     <div className="flex items-center justify-between h-16">
                         <button
-                            onClick={() => router.push('/dashboard/manage')}
+                            onClick={goBack}
                             className="flex items-center space-x-2 text-gray-600 hover:text-gray-900 transition-colors"
                         >
                             <ArrowLeft className="w-5 h-5" />
@@ -213,7 +213,7 @@ export default function BrandingPage() {
                         <div className="flex justify-end space-x-4 pt-6">
                             <button
                                 type="button"
-                                onClick={() => router.push('/dashboard/manage')}
+                                onClick={goBack}
                                 className="px-6 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
                             >
                                 Cancel

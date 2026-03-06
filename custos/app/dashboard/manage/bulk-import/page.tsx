@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
+import { useSmartBack } from '@/lib/navigation'
 import { ArrowLeft, Upload, UserPlus, Trash2, Check, X } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 
@@ -12,7 +12,7 @@ interface ExtractedStudent {
 }
 
 export default function BulkImportPage() {
-    const router = useRouter()
+    const { goBack, router } = useSmartBack('/dashboard/manage/users')
     const [file, setFile] = useState<File | null>(null)
     const [preview, setPreview] = useState<string | null>(null)
     const [loading, setLoading] = useState(false)
@@ -41,11 +41,16 @@ export default function BulkImportPage() {
 
             if (classesData) setClasses(classesData)
 
-            const { data: sectionsData } = await supabase
-                .from('sections')
-                .select('*')
+            // Filter sections to only this school's classes
+            const classIds = (classesData || []).map((c: any) => c.class_id)
+            if (classIds.length > 0) {
+                const { data: sectionsData } = await supabase
+                    .from('sections')
+                    .select('*')
+                    .in('class_id', classIds)
 
-            if (sectionsData) setSections(sectionsData)
+                if (sectionsData) setSections(sectionsData)
+            }
         }
     }
 

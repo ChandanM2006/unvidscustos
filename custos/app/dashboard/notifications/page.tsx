@@ -199,7 +199,7 @@ export default function NotificationsPage() {
                 <div className="flex items-center justify-between mb-8">
                     <div className="flex items-center gap-4">
                         <button
-                            onClick={() => router.push('/dashboard')}
+                            onClick={() => router.back()}
                             className="p-2 hover:bg-white rounded-lg transition-colors"
                         >
                             <ArrowLeft className="w-6 h-6 text-gray-600" />
@@ -229,8 +229,8 @@ export default function NotificationsPage() {
                     <button
                         onClick={() => setActiveTab('notifications')}
                         className={`px-6 py-2 rounded-lg font-medium flex items-center gap-2 transition-all ${activeTab === 'notifications'
-                                ? 'bg-indigo-600 text-white shadow-md'
-                                : 'bg-white text-gray-600 hover:bg-gray-50'
+                            ? 'bg-indigo-600 text-white shadow-md'
+                            : 'bg-white text-gray-600 hover:bg-gray-50'
                             }`}
                     >
                         <Bell className="w-5 h-5" />
@@ -244,8 +244,8 @@ export default function NotificationsPage() {
                     <button
                         onClick={() => setActiveTab('announcements')}
                         className={`px-6 py-2 rounded-lg font-medium flex items-center gap-2 transition-all ${activeTab === 'announcements'
-                                ? 'bg-indigo-600 text-white shadow-md'
-                                : 'bg-white text-gray-600 hover:bg-gray-50'
+                            ? 'bg-indigo-600 text-white shadow-md'
+                            : 'bg-white text-gray-600 hover:bg-gray-50'
                             }`}
                     >
                         <Megaphone className="w-5 h-5" />
@@ -281,8 +281,8 @@ export default function NotificationsPage() {
                                         key={notification.notification_id}
                                         onClick={() => !notification.is_read && markAsRead(notification.notification_id)}
                                         className={`p-4 cursor-pointer transition-all ${notification.is_read
-                                                ? 'bg-white hover:bg-gray-50'
-                                                : 'bg-indigo-50 hover:bg-indigo-100'
+                                            ? 'bg-white hover:bg-gray-50'
+                                            : 'bg-indigo-50 hover:bg-indigo-100'
                                             }`}
                                     >
                                         <div className="flex items-start gap-3">
@@ -323,9 +323,9 @@ export default function NotificationsPage() {
                                 <div
                                     key={announcement.announcement_id}
                                     className={`bg-white rounded-xl shadow-lg p-6 border-l-4 ${announcement.is_pinned ? 'border-yellow-500' :
-                                            announcement.priority === 'urgent' ? 'border-red-500' :
-                                                announcement.priority === 'high' ? 'border-orange-500' :
-                                                    'border-indigo-500'
+                                        announcement.priority === 'urgent' ? 'border-red-500' :
+                                            announcement.priority === 'high' ? 'border-orange-500' :
+                                                'border-indigo-500'
                                         }`}
                                 >
                                     <div className="flex items-start justify-between">

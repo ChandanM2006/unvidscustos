@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
+import { useSmartBack } from '@/lib/navigation'
 import { supabase } from '@/lib/supabase'
 import {
     ArrowLeft, BookOpen, Layers, Clock, Brain, FileText,
@@ -28,7 +28,7 @@ interface Topic {
 }
 
 export default function TopicsListPage() {
-    const router = useRouter()
+    const { goBack, router } = useSmartBack('/dashboard/manage')
 
     const [documents, setDocuments] = useState<SyllabusDocument[]>([])
     const [topics, setTopics] = useState<Topic[]>([])
@@ -59,31 +59,90 @@ export default function TopicsListPage() {
 
             const { data: userData } = await supabase
                 .from('users')
-                .select('role')
+                .select('user_id, role, school_id')
                 .eq('email', session.user.email)
                 .single()
 
             if (!userData || !['super_admin', 'sub_admin', 'teacher'].includes(userData.role)) {
                 alert('You do not have permission to access this page.')
-                router.push('/dashboard')
+                router.replace('/dashboard/redirect')
                 return
             }
 
-            const { data, error } = await supabase
+            const isAdmin = ['super_admin', 'sub_admin'].includes(userData.role)
+            let subjectIds: string[] = []
+
+            if (isAdmin) {
+                // Admins see all subjects for the school
+                const { data: schoolSubjects } = await supabase
+                    .from('subjects')
+                    .select('subject_id')
+                    .eq('school_id', userData.school_id)
+
+                subjectIds = schoolSubjects?.map(s => s.subject_id) || []
+            } else {
+                // Teachers: get subjects from their timetable assignments
+                const { data: entries } = await supabase
+                    .from('timetable_entries')
+                    .select('subject_id')
+                    .eq('teacher_id', userData.user_id)
+
+                const ttSubjectIds = [...new Set((entries || []).map(e => e.subject_id).filter(Boolean))]
+
+                if (ttSubjectIds.length > 0) {
+                    subjectIds = ttSubjectIds
+                } else {
+                    // Fallback: teacher_subjects table
+                    const { data: ts } = await supabase
+                        .from('teacher_subjects')
+                        .select('subject_id')
+                        .eq('teacher_id', userData.user_id)
+
+                    const tsIds = (ts || []).map(t => t.subject_id).filter(Boolean)
+
+                    if (tsIds.length > 0) {
+                        subjectIds = tsIds
+                    } else {
+                        // Final fallback: all school subjects
+                        const { data: schoolSubjects } = await supabase
+                            .from('subjects')
+                            .select('subject_id')
+                            .eq('school_id', userData.school_id)
+
+                        subjectIds = schoolSubjects?.map(s => s.subject_id) || []
+                    }
+                }
+            }
+
+            if (subjectIds.length === 0) {
+                setDocuments([])
+                setLoading(false)
+                return
+            }
+
+            // Fetch documents for the filtered subjects
+            // Avoid PostgREST join — fetch subject details separately
+            const { data: docs, error } = await supabase
                 .from('syllabus_documents')
-                .select(`
-                    document_id,
-                    chapter_title,
-                    grade_level,
-                    subjects:subject_id (name, code)
-                `)
-                .order('created_at', { ascending: false })
+                .select('document_id, chapter_title, grade_level, subject_id')
+                .in('subject_id', subjectIds)
+                .order('grade_level', { ascending: true })
 
             if (error) throw error
-            const formatted = (data || []).map((item: any) => ({
+
+            // Get subject names
+            const uniqueSubjectIds = [...new Set((docs || []).map(d => d.subject_id))]
+            const { data: subjectsData } = uniqueSubjectIds.length > 0
+                ? await supabase.from('subjects').select('subject_id, name, code').in('subject_id', uniqueSubjectIds)
+                : { data: [] }
+
+            const subjectLookup = new Map((subjectsData || []).map((s: any) => [s.subject_id, { name: s.name, code: s.code }]))
+
+            const formatted = (docs || []).map((item: any) => ({
                 ...item,
-                subjects: Array.isArray(item.subjects) ? item.subjects[0] : item.subjects
+                subjects: subjectLookup.get(item.subject_id) || { name: 'Unknown', code: '?' }
             }))
+
             setDocuments(formatted)
             if (formatted.length > 0) setSelectedDocId(formatted[0].document_id)
         } catch (error) {
@@ -130,7 +189,7 @@ export default function TopicsListPage() {
                 <div className="flex items-center justify-between mb-8">
                     <div className="flex items-center gap-4">
                         <button
-                            onClick={() => router.push('/dashboard/manage')}
+                            onClick={goBack}
                             className="p-2 hover:bg-white rounded-lg transition-colors"
                         >
                             <ArrowLeft className="w-6 h-6 text-gray-600" />
@@ -237,20 +296,13 @@ export default function TopicsListPage() {
                                     </div>
                                 </div>
 
-                                <div className="flex gap-2">
+                                <div>
                                     <button
                                         onClick={() => router.push(`/dashboard/manage/topics/${topic.topic_id}/resources`)}
-                                        className="flex-1 py-2 px-4 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-lg font-medium flex items-center justify-center gap-2 hover:shadow-md transition-all"
+                                        className="w-full py-2 px-4 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-lg font-medium flex items-center justify-center gap-2 hover:shadow-md transition-all"
                                     >
                                         <FileText className="w-4 h-4" />
                                         Resources
-                                    </button>
-                                    <button
-                                        onClick={() => router.push(`/dashboard/manage/topics/${topic.topic_id}/mcq`)}
-                                        className="flex-1 py-2 px-4 bg-gradient-to-r from-blue-600 to-cyan-600 text-white rounded-lg font-medium flex items-center justify-center gap-2 hover:shadow-md transition-all"
-                                    >
-                                        <Brain className="w-4 h-4" />
-                                        MCQs
                                     </button>
                                 </div>
                             </div>

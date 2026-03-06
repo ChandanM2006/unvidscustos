@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
+import { useSmartBack } from '@/lib/navigation'
 import { supabase } from '@/lib/supabase'
 import {
     ArrowLeft, Mail, Phone, Clock, Send, Trash2, CheckCircle,
@@ -23,7 +23,7 @@ interface Invitation {
 }
 
 export default function InvitationsPage() {
-    const router = useRouter()
+    const { goBack, router } = useSmartBack('/dashboard/manage/users')
     const [loading, setLoading] = useState(true)
     const [invitations, setInvitations] = useState<Invitation[]>([])
     const [filter, setFilter] = useState<'all' | 'pending' | 'invited' | 'registered'>('all')
@@ -47,7 +47,7 @@ export default function InvitationsPage() {
                 .single()
 
             if (!userData || !['super_admin', 'sub_admin'].includes(userData.role)) {
-                router.push('/dashboard')
+                router.replace('/dashboard/redirect')
                 return
             }
 

@@ -1,15 +1,17 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
+import { useSmartBack } from '@/lib/navigation'
 import { supabase } from '@/lib/supabase'
-import { ArrowLeft, Calendar, BookOpen, Layers, Wand2, Check, X, Loader2 } from 'lucide-react'
+import { ArrowLeft, Calendar, BookOpen, Layers, Wand2, Check, X, Loader2, Clock } from 'lucide-react'
 
 // Interfaces
 interface SyllabusDocument {
     document_id: string
     chapter_title: string
+    chapter_number: number
     grade_level: number
+    subject_id: string
     subjects: {
         name: string
         code: string
@@ -32,7 +34,8 @@ interface LessonPlanReview {
 interface ClassItem {
     class_id: string
     name: string
-    section: string
+    grade_level: number
+    section?: string
 }
 
 interface AcademicYear {
@@ -40,15 +43,25 @@ interface AcademicYear {
     year_name: string
 }
 
+interface TeacherAssignment {
+    class_id: string
+    subject_id: string
+    class_name: string
+    grade_level: number
+    subject_name: string
+    subject_code: string
+}
+
 export default function CreateLessonPlanPage() {
-    const router = useRouter()
+    const { goBack, router } = useSmartBack('/dashboard/manage/lesson-plans')
 
     // States
-    const [loading, setLoading] = useState(false)
+    const [loading, setLoading] = useState(true)
     const [step, setStep] = useState<1 | 2>(1) // 1: Config, 2: Review
 
     // Data Loading
     const [documents, setDocuments] = useState<SyllabusDocument[]>([])
+    const [filteredDocuments, setFilteredDocuments] = useState<SyllabusDocument[]>([])
     const [topics, setTopics] = useState<Topic[]>([])
 
     // Form Selection
@@ -56,7 +69,8 @@ export default function CreateLessonPlanPage() {
     const [selectedTopicIds, setSelectedTopicIds] = useState<string[]>([])
     const [startDate, setStartDate] = useState('')
     const [endDate, setEndDate] = useState('')
-    const [periodsPerWeek, setPeriodsPerWeek] = useState(5)
+    const [periodsPerWeek, setPeriodsPerWeek] = useState(0)
+    const [periodsAutoDetected, setPeriodsAutoDetected] = useState(false)
     const [holidays, setHolidays] = useState<string[]>([])
     const [newHoliday, setNewHoliday] = useState('')
 
@@ -64,23 +78,38 @@ export default function CreateLessonPlanPage() {
     const [generatedPlan, setGeneratedPlan] = useState<LessonPlanReview | null>(null)
     const [generating, setGenerating] = useState(false)
 
-    // New State for Context
-    const [classes, setClasses] = useState<ClassItem[]>([])
+    // Context
+    const [teacherClasses, setTeacherClasses] = useState<ClassItem[]>([])
+    const [teacherAssignments, setTeacherAssignments] = useState<TeacherAssignment[]>([])
     const [academicYears, setAcademicYears] = useState<AcademicYear[]>([])
     const [selectedClassId, setSelectedClassId] = useState('')
     const [selectedYearId, setSelectedYearId] = useState('')
     const [userId, setUserId] = useState<string | null>(null)
+    const [userSchoolId, setUserSchoolId] = useState<string | null>(null)
     const [isSaving, setIsSaving] = useState(false)
 
     // Load Initial Data
     useEffect(() => {
-        checkUser()
-        loadDocuments()
-        loadClasses()
-        loadAcademicYears()
+        initPage()
     }, [])
 
-    // Load Topics when Document Changes
+    // When class changes → filter documents + auto-detect periods
+    useEffect(() => {
+        if (selectedClassId && userId) {
+            filterDocumentsForClass(selectedClassId)
+            autoDetectPeriodsPerWeek(selectedClassId)
+        } else {
+            setFilteredDocuments([])
+            setPeriodsPerWeek(0)
+            setPeriodsAutoDetected(false)
+        }
+        // Reset downstream selections
+        setSelectedDocId('')
+        setTopics([])
+        setSelectedTopicIds([])
+    }, [selectedClassId])
+
+    // Load topics when document changes
     useEffect(() => {
         if (selectedDocId) {
             loadTopics(selectedDocId)
@@ -90,51 +119,249 @@ export default function CreateLessonPlanPage() {
         }
     }, [selectedDocId])
 
-    async function checkUser() {
-        const { data: { user } } = await supabase.auth.getUser()
-        if (user) setUserId(user.id)
-    }
+    async function initPage() {
+        try {
+            const { data: { user } } = await supabase.auth.getUser()
+            if (!user) return
+            setUserId(user.id)
 
-    async function loadClasses() {
-        const { data, error } = await supabase
-            .from('classes')
-            .select('*')
-            .order('name', { ascending: true })
+            // Get user's school_id and role
+            const { data: userData } = await supabase
+                .from('users')
+                .select('school_id, role')
+                .eq('user_id', user.id)
+                .single()
 
-        if (error) {
-            console.error('Error loading classes:', error)
+            if (!userData?.school_id) return
+            setUserSchoolId(userData.school_id)
+
+            const isAdmin = ['super_admin', 'sub_admin'].includes(userData.role)
+
+            // Load in parallel
+            await Promise.all([
+                loadTeacherAssignments(user.id, userData.school_id, isAdmin),
+                loadAllDocuments(userData.school_id),
+                loadAcademicYears(userData.school_id)
+            ])
+        } catch (error) {
+            console.error('Error initializing page:', error)
+        } finally {
+            setLoading(false)
         }
-        setClasses(data || [])
     }
 
-    async function loadAcademicYears() {
+    /**
+     * Load classes assigned to this teacher from timetable_entries.
+     * This gives us the unique class_id + subject_id combinations for this teacher.
+     */
+    async function loadTeacherAssignments(teacherId: string, schoolId: string, isAdmin: boolean) {
+        try {
+            if (isAdmin) {
+                // Admins see all classes
+                const { data: classesData } = await supabase
+                    .from('classes')
+                    .select('class_id, name, grade_level')
+                    .eq('school_id', schoolId)
+                    .order('grade_level', { ascending: true })
+
+                setTeacherClasses(classesData || [])
+                setTeacherAssignments([]) // Admins don't need assignment filtering
+                return
+            }
+
+            // For teachers: get their class+subject assignments from timetable_entries
+            // Step 1: Get the raw timetable entries (just IDs — no joins)
+            const { data: entries, error } = await supabase
+                .from('timetable_entries')
+                .select('class_id, subject_id')
+                .eq('teacher_id', teacherId)
+
+            if (error) {
+                console.error('Error loading timetable entries:', error)
+                // Fallback: try teacher_subjects table
+                await loadFromTeacherSubjects(teacherId, schoolId)
+                return
+            }
+
+            if (!entries || entries.length === 0) {
+                // Fallback: try teacher_subjects table
+                await loadFromTeacherSubjects(teacherId, schoolId)
+                return
+            }
+
+            // Step 2: Get unique class IDs and subject IDs
+            const uniqueClassIds = [...new Set(entries.map(e => e.class_id))]
+            const uniqueSubjectIds = [...new Set(entries.map(e => e.subject_id))]
+
+            // Step 3: Fetch class and subject details separately
+            const [classesResult, subjectsResult] = await Promise.all([
+                supabase
+                    .from('classes')
+                    .select('class_id, name, grade_level')
+                    .in('class_id', uniqueClassIds),
+                supabase
+                    .from('subjects')
+                    .select('subject_id, name, code')
+                    .in('subject_id', uniqueSubjectIds)
+            ])
+
+            const classLookup = new Map<string, { name: string; grade_level: number }>()
+            for (const c of (classesResult.data || [])) {
+                classLookup.set(c.class_id, { name: c.name, grade_level: c.grade_level })
+            }
+
+            const subjectLookup = new Map<string, { name: string; code: string }>()
+            for (const s of (subjectsResult.data || [])) {
+                subjectLookup.set(s.subject_id, { name: s.name, code: s.code })
+            }
+
+            // Step 4: Deduplicate class+subject combinations
+            const assignmentMap = new Map<string, TeacherAssignment>()
+            const classMap = new Map<string, ClassItem>()
+
+            for (const entry of entries) {
+                const classInfo = classLookup.get(entry.class_id)
+                const subjectInfo = subjectLookup.get(entry.subject_id)
+
+                if (!classInfo || !subjectInfo) continue
+
+                const key = `${entry.class_id}_${entry.subject_id}`
+                if (!assignmentMap.has(key)) {
+                    assignmentMap.set(key, {
+                        class_id: entry.class_id,
+                        subject_id: entry.subject_id,
+                        class_name: classInfo.name,
+                        grade_level: classInfo.grade_level,
+                        subject_name: subjectInfo.name,
+                        subject_code: subjectInfo.code
+                    })
+                }
+
+                if (!classMap.has(entry.class_id)) {
+                    classMap.set(entry.class_id, {
+                        class_id: entry.class_id,
+                        name: classInfo.name,
+                        grade_level: classInfo.grade_level
+                    })
+                }
+            }
+
+            const uniqueClasses = Array.from(classMap.values()).sort((a, b) => a.grade_level - b.grade_level)
+            setTeacherClasses(uniqueClasses)
+            setTeacherAssignments(Array.from(assignmentMap.values()))
+
+        } catch (error) {
+            console.error('Error loading teacher assignments:', error)
+        }
+    }
+
+    /**
+     * Fallback: If timetable_entries is empty, use teacher_subjects table.
+     * If that's also empty, load ALL classes so the page is still usable.
+     */
+    async function loadFromTeacherSubjects(teacherId: string, schoolId: string) {
+        try {
+            // Step 1: Get subject IDs assigned to this teacher
+            const { data: assignments } = await supabase
+                .from('teacher_subjects')
+                .select('subject_id')
+                .eq('teacher_id', teacherId)
+
+            if (assignments && assignments.length > 0) {
+                // Step 2: Get subject details 
+                const subjectIds = assignments.map(a => a.subject_id)
+                const { data: subjectsData } = await supabase
+                    .from('subjects')
+                    .select('subject_id, name, code, grade_levels')
+                    .in('subject_id', subjectIds)
+
+                // Get all grade levels from assigned subjects
+                const gradeLevels = new Set<number>()
+                for (const subj of (subjectsData || [])) {
+                    if (subj?.grade_levels) {
+                        for (const gl of subj.grade_levels) {
+                            gradeLevels.add(gl)
+                        }
+                    }
+                }
+
+                // Get classes matching those grade levels
+                if (gradeLevels.size > 0) {
+                    const { data: classesData } = await supabase
+                        .from('classes')
+                        .select('class_id, name, grade_level')
+                        .eq('school_id', schoolId)
+                        .in('grade_level', Array.from(gradeLevels))
+                        .order('grade_level')
+
+                    if (classesData && classesData.length > 0) {
+                        setTeacherClasses(classesData)
+                        return
+                    }
+                }
+            }
+        } catch (err) {
+            console.error('Error loading teacher_subjects:', err)
+        }
+
+        // Final fallback: load ALL classes for the school
+        // (timetable not configured yet — still let them use the page)
+        console.log('[LessonPlan] No timetable or teacher_subjects found. Showing all school classes.')
+        const { data: allClasses } = await supabase
+            .from('classes')
+            .select('class_id, name, grade_level')
+            .eq('school_id', schoolId)
+            .order('grade_level', { ascending: true })
+
+        setTeacherClasses(allClasses || [])
+        setTeacherAssignments([]) // No filtering — show all chapters
+    }
+
+    async function loadAcademicYears(schoolId: string) {
         const { data, error } = await supabase
             .from('academic_years')
             .select('*')
+            .eq('school_id', schoolId)
             .order('created_at', { ascending: false })
 
         if (error) {
             console.error('Error loading academic years:', error)
         }
         setAcademicYears(data || [])
-        // Auto-select first available year (or the one marked is_current)
         if (data && data.length > 0) {
             const currentYear = data.find((y: any) => y.is_current) || data[0]
             setSelectedYearId(currentYear.year_id)
         }
     }
 
-    async function loadDocuments() {
+    /**
+     * Load ALL syllabus documents for the school (we filter client-side based on class selection)
+     */
+    async function loadAllDocuments(schoolId: string) {
         try {
+            const { data: schoolSubjects } = await supabase
+                .from('subjects')
+                .select('subject_id')
+                .eq('school_id', schoolId)
+
+            const subjectIds = schoolSubjects?.map(s => s.subject_id) || []
+            if (subjectIds.length === 0) {
+                setDocuments([])
+                return
+            }
+
             const { data, error } = await supabase
                 .from('syllabus_documents')
                 .select(`
                     document_id,
                     chapter_title,
+                    chapter_number,
                     grade_level,
+                    subject_id,
                     subjects:subject_id (name, code)
                 `)
-                .order('created_at', { ascending: false })
+                .in('subject_id', subjectIds)
+                .order('chapter_number', { ascending: true })
 
             if (error) throw error
             const formattedData = (data || []).map((item: any) => ({
@@ -144,7 +371,91 @@ export default function CreateLessonPlanPage() {
             setDocuments(formattedData)
         } catch (error: any) {
             console.error('Error loading documents:', error)
-            alert('Failed to load syllabus documents')
+        }
+    }
+
+    /**
+     * Filter documents to only show chapters matching:
+     * - The grade_level of the selected class
+     * - The subject(s) the teacher teaches for that class (from timetable)
+     */
+    function filterDocumentsForClass(classId: string) {
+        const selectedClass = teacherClasses.find(c => c.class_id === classId)
+        if (!selectedClass) {
+            setFilteredDocuments([])
+            return
+        }
+
+        // Get subject IDs the teacher teaches for this specific class
+        const teacherSubjectIdsForClass = teacherAssignments
+            .filter(a => a.class_id === classId)
+            .map(a => a.subject_id)
+
+        let filtered: SyllabusDocument[]
+
+        if (teacherSubjectIdsForClass.length > 0) {
+            // Teacher: filter by grade_level AND teacher's assigned subjects for this class
+            filtered = documents.filter(doc =>
+                doc.grade_level === selectedClass.grade_level &&
+                teacherSubjectIdsForClass.includes(doc.subject_id)
+            )
+        } else {
+            // Admin or no assignment data: filter by grade_level only
+            filtered = documents.filter(doc =>
+                doc.grade_level === selectedClass.grade_level
+            )
+        }
+
+        // Sort by subject code, then chapter number
+        filtered.sort((a, b) => {
+            const subA = a.subjects?.code || ''
+            const subB = b.subjects?.code || ''
+            if (subA !== subB) return subA.localeCompare(subB)
+            return (a.chapter_number || 0) - (b.chapter_number || 0)
+        })
+
+        setFilteredDocuments(filtered)
+    }
+
+    /**
+     * Auto-detect periods per week from timetable_entries.
+     * Count how many periods this teacher has for the selected class
+     * (across all days of the week, for the subject they're about to plan).
+     */
+    async function autoDetectPeriodsPerWeek(classId: string) {
+        if (!userId) return
+
+        try {
+            // Count all timetable entries for this teacher + class
+            // (We count distinct day_of_week + slot_id combinations)
+            const { data: entries, error } = await supabase
+                .from('timetable_entries')
+                .select('entry_id, day_of_week, slot_id, subject_id')
+                .eq('teacher_id', userId)
+                .eq('class_id', classId)
+
+            if (error) {
+                console.error('Error detecting periods:', error)
+                setPeriodsPerWeek(5) // Default fallback
+                setPeriodsAutoDetected(false)
+                return
+            }
+
+            if (entries && entries.length > 0) {
+                // For now, count total periods per week for this class
+                // (teacher may teach multiple subjects to same class)
+                setPeriodsPerWeek(entries.length)
+                setPeriodsAutoDetected(true)
+                console.log(`[LessonPlan] Auto-detected ${entries.length} periods/week from timetable`)
+            } else {
+                // No timetable data found — set reasonable default
+                setPeriodsPerWeek(5)
+                setPeriodsAutoDetected(false)
+            }
+        } catch (error) {
+            console.error('Error detecting periods from timetable:', error)
+            setPeriodsPerWeek(5)
+            setPeriodsAutoDetected(false)
         }
     }
 
@@ -178,7 +489,7 @@ export default function CreateLessonPlanPage() {
         const missing = []
         if (!selectedClassId) missing.push('Class')
         if (!selectedYearId) missing.push('Academic Year')
-        if (!selectedDocId) missing.push('Syllabus')
+        if (!selectedDocId) missing.push('Syllabus Chapter')
         if (selectedTopicIds.length === 0) missing.push('Topics (select at least one)')
         if (!startDate) missing.push('Start Date')
         if (!endDate) missing.push('End Date')
@@ -190,7 +501,6 @@ export default function CreateLessonPlanPage() {
 
         setGenerating(true)
         try {
-            // Prepare payload
             const selectedTopics = topics.filter(t => selectedTopicIds.includes(t.topic_id))
 
             const payload = {
@@ -199,7 +509,7 @@ export default function CreateLessonPlanPage() {
                     topic_title: t.topic_title,
                     duration_minutes: t.estimated_duration_minutes || 45,
                     difficulty: t.difficulty_level || 'medium',
-                    learning_objectives: [] // Add if available
+                    learning_objectives: []
                 })),
                 constraints: {
                     total_days: calculateDaysBetween(startDate, endDate),
@@ -210,7 +520,6 @@ export default function CreateLessonPlanPage() {
                 }
             }
 
-            // Call Next.js API route (works locally and in production)
             const response = await fetch('/api/lesson-plan/generate', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -244,7 +553,6 @@ export default function CreateLessonPlanPage() {
         setIsSaving(true)
 
         try {
-            // 1. Create Master Lesson Plan (stores full AI schedule including revision/assessment days)
             const { data: planData, error: planError } = await supabase
                 .from('lesson_plans')
                 .insert({
@@ -264,14 +572,10 @@ export default function CreateLessonPlanPage() {
 
             if (planError) throw planError
 
-            // 2. Create Daily Lesson Details
-            // Only insert teaching days that have valid topic UUIDs
-            // Revision/assessment days are stored in ai_schedule JSONB but NOT in this table
             const validTopicIds = new Set(topics.map(t => t.topic_id))
 
             const dailyDetails = generatedPlan.schedule
                 .filter((dayItem: any) => {
-                    // Only include entries with valid lesson_topics UUIDs
                     return dayItem.topic_id && validTopicIds.has(dayItem.topic_id)
                 })
                 .map((dayItem: any) => ({
@@ -307,11 +611,21 @@ export default function CreateLessonPlanPage() {
         }
     }
 
-    // Helper
     function addDays(date: string, days: number) {
         const result = new Date(date)
         result.setDate(result.getDate() + days)
         return result.toISOString().split('T')[0]
+    }
+
+    if (loading) {
+        return (
+            <div className="min-h-screen bg-gradient-to-br from-purple-50 via-blue-50 to-indigo-50 flex items-center justify-center">
+                <div className="text-center">
+                    <Loader2 className="w-10 h-10 text-purple-600 animate-spin mx-auto mb-3" />
+                    <p className="text-gray-600 font-medium">Loading your assignments...</p>
+                </div>
+            </div>
+        )
     }
 
     return (
@@ -322,7 +636,7 @@ export default function CreateLessonPlanPage() {
                         <button
                             onClick={() => {
                                 if (step === 2) setStep(1)
-                                else router.push('/dashboard/manage/lesson-plans')
+                                else goBack()
                             }}
                             className="p-2 hover:bg-white rounded-lg transition-colors"
                         >
@@ -341,7 +655,7 @@ export default function CreateLessonPlanPage() {
 
                 {step === 1 && (
                     <div className="bg-white rounded-2xl shadow-xl p-8 space-y-8">
-                        {/* 0. Context Selection (New) */}
+                        {/* 0. Context Selection */}
                         <section className="grid grid-cols-1 md:grid-cols-2 gap-6">
                             <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-2">Class</label>
@@ -351,10 +665,17 @@ export default function CreateLessonPlanPage() {
                                     className="w-full p-3 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-purple-500 text-gray-900"
                                 >
                                     <option value="">-- Select Class --</option>
-                                    {classes.map(c => (
-                                        <option key={c.class_id} value={c.class_id}>{c.name} {c.section}</option>
+                                    {teacherClasses.map(c => (
+                                        <option key={c.class_id} value={c.class_id}>
+                                            {c.name} (Grade {c.grade_level})
+                                        </option>
                                     ))}
                                 </select>
+                                {teacherClasses.length === 0 && (
+                                    <p className="text-xs text-amber-600 mt-1">
+                                        No classes assigned. Ask admin to set up your timetable.
+                                    </p>
+                                )}
                             </div>
                             <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-2">Academic Year</label>
@@ -371,32 +692,36 @@ export default function CreateLessonPlanPage() {
                             </div>
                         </section>
 
-                        {/* 1. Select Syllabus */}
-                        <section>
-                            <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
-                                <BookOpen className="w-5 h-5 text-purple-600" />
-                                Select Syllabus
-                            </h3>
-                            <select
-                                value={selectedDocId}
-                                onChange={(e) => setSelectedDocId(e.target.value)}
-                                className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 outline-none transition-all text-gray-900"
-                            >
-                                <option value="">-- Choose a Chapter --</option>
-                                {documents.map(doc => (
-                                    <option key={doc.document_id} value={doc.document_id}>
-                                        {doc.subjects.code} - {doc.chapter_title} (Grade {doc.grade_level})
-                                    </option>
-                                ))}
-                            </select>
-                        </section>
+                        {/* 1. Select Syllabus — filtered by class + teacher subject */}
+                        {selectedClassId && (
+                            <section>
+                                <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
+                                    <BookOpen className="w-5 h-5 text-purple-600" />
+                                    Select Syllabus
+                                </h3>
+                                {filteredDocuments.length > 0 ? (
+                                    <select
+                                        value={selectedDocId}
+                                        onChange={(e) => setSelectedDocId(e.target.value)}
+                                        className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 outline-none transition-all text-gray-900"
+                                    >
+                                        <option value="">-- Choose a Chapter --</option>
+                                        {filteredDocuments.map(doc => (
+                                            <option key={doc.document_id} value={doc.document_id}>
+                                                {doc.subjects?.code} - {doc.chapter_title}
+                                            </option>
+                                        ))}
+                                    </select>
+                                ) : (
+                                    <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 text-sm text-amber-800">
+                                        No syllabus chapters found for your assigned subjects in this class. Please ask admin to upload the textbook first.
+                                    </div>
+                                )}
+                            </section>
+                        )}
 
                         {/* 2. Configure Topics */}
-                        {loading ? (
-                            <div className="flex justify-center py-8">
-                                <Loader2 className="w-8 h-8 text-purple-600 animate-spin" />
-                            </div>
-                        ) : topics.length > 0 && (
+                        {topics.length > 0 && (
                             <section>
                                 <div className="flex items-center justify-between mb-4">
                                     <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2">
@@ -466,18 +791,47 @@ export default function CreateLessonPlanPage() {
                             <div>
                                 <h3 className="text-lg font-bold text-gray-900 mb-4">Settings</h3>
                                 <div className="space-y-4">
+                                    {/* Periods per Week — auto-detected from timetable */}
                                     <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-1">Periods per Week</label>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-1.5">
+                                            Periods per Week
+                                            {periodsAutoDetected && (
+                                                <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-green-100 text-green-700 text-xs rounded-full font-medium">
+                                                    <Clock className="w-3 h-3" />
+                                                    Auto from timetable
+                                                </span>
+                                            )}
+                                        </label>
                                         <input
                                             type="number"
-                                            min="1" max="10"
-                                            value={periodsPerWeek || 5}
+                                            min="1" max="30"
+                                            value={periodsPerWeek || ''}
                                             onChange={(e) => {
                                                 const val = parseInt(e.target.value)
-                                                setPeriodsPerWeek(isNaN(val) ? 5 : val)
+                                                setPeriodsPerWeek(isNaN(val) ? 0 : val)
+                                                setPeriodsAutoDetected(false) // user overrode it
                                             }}
-                                            className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 outline-none text-gray-900 bg-white"
+                                            className={`w-full p-2 border rounded-lg focus:ring-2 focus:ring-purple-500 outline-none text-gray-900 ${periodsAutoDetected
+                                                ? 'bg-green-50 border-green-300'
+                                                : 'bg-white border-gray-300'
+                                                }`}
+                                            readOnly={periodsAutoDetected}
                                         />
+                                        {periodsAutoDetected && (
+                                            <button
+                                                type="button"
+                                                onClick={() => setPeriodsAutoDetected(false)}
+                                                className="text-xs text-purple-600 hover:text-purple-800 mt-1 underline"
+                                            >
+                                                Override manually
+                                            </button>
+                                        )}
+                                        {!periodsAutoDetected && !selectedClassId && (
+                                            <p className="text-xs text-gray-400 mt-1">Select a class to auto-detect from timetable</p>
+                                        )}
+                                        {!periodsAutoDetected && selectedClassId && periodsPerWeek > 0 && (
+                                            <p className="text-xs text-amber-500 mt-1">No timetable data found — using default. You can adjust.</p>
+                                        )}
                                     </div>
                                     {/* Holiday Configuration */}
                                     <div>
@@ -534,7 +888,7 @@ export default function CreateLessonPlanPage() {
                         <div className="flex justify-end pt-4">
                             <button
                                 onClick={handleGenerate}
-                                disabled={generating || !selectedDocId}
+                                disabled={generating || !selectedDocId || !selectedClassId}
                                 className={`px-8 py-4 rounded-xl font-bold text-lg flex items-center gap-3 transition-all ${generating
                                     ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
                                     : 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white hover:shadow-lg hover:scale-[1.02]'
@@ -570,16 +924,22 @@ export default function CreateLessonPlanPage() {
                             </div>
                             <div className="flex gap-3">
                                 <button
-                                    onClick={() => setStep(1)} // Back to edit
+                                    onClick={() => setStep(1)}
                                     className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg"
                                 >
                                     Adjust Settings
                                 </button>
                                 <button
                                     onClick={handleSave}
-                                    className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 font-semibold shadow-md"
+                                    disabled={isSaving}
+                                    className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 font-semibold shadow-md disabled:opacity-50"
                                 >
-                                    Save & Publish
+                                    {isSaving ? (
+                                        <span className="flex items-center gap-2">
+                                            <Loader2 className="w-4 h-4 animate-spin" />
+                                            Saving...
+                                        </span>
+                                    ) : 'Save & Publish'}
                                 </button>
                             </div>
                         </div>

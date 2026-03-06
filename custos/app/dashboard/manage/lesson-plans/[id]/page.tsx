@@ -1,7 +1,8 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { useRouter, useParams } from 'next/navigation'
+import { useParams } from 'next/navigation'
+import { useSmartBack } from '@/lib/navigation'
 import { supabase } from '@/lib/supabase'
 import { ArrowLeft, Calendar, BookOpen, Clock, CheckCircle, Circle, Play, Pause, MoreVertical } from 'lucide-react'
 
@@ -42,7 +43,7 @@ interface DailyDetail {
 }
 
 export default function LessonPlanDetailPage() {
-    const router = useRouter()
+    const { goBack } = useSmartBack('/dashboard/manage/lesson-plans')
     const params = useParams()
     const planId = params.id as string
 
@@ -161,7 +162,7 @@ export default function LessonPlanDetailPage() {
             <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-purple-50 via-blue-50 to-indigo-50">
                 <div className="text-center">
                     <h2 className="text-2xl font-bold text-gray-900 mb-2">Plan Not Found</h2>
-                    <button onClick={() => router.back()} className="text-purple-600 underline">Go Back</button>
+                    <button onClick={goBack} className="text-purple-600 underline">Go Back</button>
                 </div>
             </div>
         )
@@ -174,7 +175,7 @@ export default function LessonPlanDetailPage() {
                 <div className="flex items-center justify-between mb-8">
                     <div className="flex items-center gap-4">
                         <button
-                            onClick={() => router.push('/dashboard/manage/lesson-plans')}
+                            onClick={goBack}
                             className="p-2 hover:bg-white rounded-lg transition-colors"
                         >
                             <ArrowLeft className="w-6 h-6 text-gray-600" />

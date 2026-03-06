@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { supabase, type User } from '@/lib/supabase'
-import { useRouter } from 'next/navigation'
+import { useSmartBack } from '@/lib/navigation'
 import {
     Users, ArrowLeft, Loader2, Calendar, Target, Award, BookOpen
 } from 'lucide-react'
@@ -18,7 +18,7 @@ interface Child {
 }
 
 export default function ParentChildrenPage() {
-    const router = useRouter()
+    const { goBack, router } = useSmartBack('/dashboard/parent')
     const [loading, setLoading] = useState(true)
     const [children, setChildren] = useState<Child[]>([])
 
@@ -142,7 +142,7 @@ export default function ParentChildrenPage() {
         <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
             <header className="bg-white/5 backdrop-blur-lg border-b border-white/10 px-6 py-4">
                 <div className="max-w-4xl mx-auto flex items-center gap-4">
-                    <button onClick={() => router.push('/dashboard/parent')} className="p-2 hover:bg-white/10 rounded-lg">
+                    <button onClick={goBack} className="p-2 hover:bg-white/10 rounded-lg">
                         <ArrowLeft className="w-5 h-5 text-purple-300" />
                     </button>
                     <div>

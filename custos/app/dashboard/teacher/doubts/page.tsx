@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { useRouter } from 'next/navigation'
+import { useSmartBack } from '@/lib/navigation'
 import { supabase } from '@/lib/supabase'
 import {
     ArrowLeft, MessageCircle, Send, Clock, AlertTriangle,
@@ -22,7 +22,7 @@ interface Doubt {
 }
 
 export default function TeacherDoubtsPage() {
-    const router = useRouter()
+    const { goBack, router } = useSmartBack('/dashboard/teacher')
     const [loading, setLoading] = useState(true)
     const [doubts, setDoubts] = useState<Doubt[]>([])
     const [filter, setFilter] = useState<'all' | 'flagged' | 'pending' | 'answered'>('all')
@@ -38,62 +38,59 @@ export default function TeacherDoubtsPage() {
 
             const { data: userData } = await supabase
                 .from('users')
-                .select('user_id, role')
+                .select('user_id, role, school_id')
                 .eq('email', session.user.email)
                 .single()
 
-            if (!userData || userData.role !== 'teacher') { router.push('/dashboard'); return }
+            if (!userData || userData.role !== 'teacher') { router.replace('/dashboard/redirect'); return }
             setTeacherId(userData.user_id)
 
-            // Fetch doubts with student names
+            // Fetch doubts (join with users to filter by school_id)
             const { data: doubtData, error } = await supabase
                 .from('student_doubts')
-                .select(`
-                    doubt_id, student_id, doubt_text, ai_response, teacher_response,
-                    status, flagged_for_teacher, created_at,
-                    users!student_doubts_student_id_fkey(full_name),
-                    lesson_topics(topic_name)
-                `)
+                .select('*, users!student_id!inner(school_id)')
+                .eq('users.school_id', userData.school_id)
                 .order('created_at', { ascending: false })
                 .limit(50)
 
             if (error) {
                 console.error('[Doubts] Load error:', error)
-                // Fallback: try without join names
-                const { data: fallbackData } = await supabase
-                    .from('student_doubts')
-                    .select('*')
-                    .order('created_at', { ascending: false })
-                    .limit(50)
-
-                if (fallbackData) {
-                    setDoubts(fallbackData.map((d: any) => ({
-                        doubt_id: d.doubt_id,
-                        student_id: d.student_id,
-                        student_name: 'Student',
-                        topic_name: null,
-                        doubt_text: d.doubt_text,
-                        ai_response: d.ai_response,
-                        teacher_response: d.teacher_response,
-                        status: d.status,
-                        flagged_for_teacher: d.flagged_for_teacher || false,
-                        created_at: d.created_at,
-                    })))
-                }
-            } else if (doubtData) {
-                setDoubts(doubtData.map((d: any) => ({
-                    doubt_id: d.doubt_id,
-                    student_id: d.student_id,
-                    student_name: d.users?.full_name || 'Unknown Student',
-                    topic_name: d.lesson_topics?.topic_name || null,
-                    doubt_text: d.doubt_text,
-                    ai_response: d.ai_response,
-                    teacher_response: d.teacher_response,
-                    status: d.status,
-                    flagged_for_teacher: d.flagged_for_teacher || false,
-                    created_at: d.created_at,
-                })))
+                return
             }
+
+            if (!doubtData || doubtData.length === 0) {
+                setDoubts([])
+                return
+            }
+
+            // Look up student names
+            const studentIds = [...new Set(doubtData.map(d => d.student_id).filter(Boolean))]
+            const topicIds = [...new Set(doubtData.map(d => d.topic_id).filter(Boolean))]
+
+            const [studentsRes, topicsRes] = await Promise.all([
+                studentIds.length > 0
+                    ? supabase.from('users').select('user_id, full_name').in('user_id', studentIds)
+                    : { data: [] },
+                topicIds.length > 0
+                    ? supabase.from('lesson_topics').select('topic_id, topic_title').in('topic_id', topicIds)
+                    : { data: [] },
+            ])
+
+            const studentMap = new Map((studentsRes.data || []).map((s: any) => [s.user_id, s.full_name]))
+            const topicMap = new Map((topicsRes.data || []).map((t: any) => [t.topic_id, t.topic_title]))
+
+            setDoubts(doubtData.map((d: any) => ({
+                doubt_id: d.doubt_id,
+                student_id: d.student_id,
+                student_name: studentMap.get(d.student_id) || 'Unknown Student',
+                topic_name: d.topic_id ? (topicMap.get(d.topic_id) || null) : null,
+                doubt_text: d.doubt_text,
+                ai_response: d.ai_response,
+                teacher_response: d.teacher_response,
+                status: d.status,
+                flagged_for_teacher: d.flagged_for_teacher || false,
+                created_at: d.created_at,
+            })))
         } catch (error) {
             console.error('[Doubts] Error:', error)
         } finally {
@@ -194,7 +191,7 @@ export default function TeacherDoubtsPage() {
             <header className="bg-white border-b shadow-sm sticky top-0 z-10">
                 <div className="max-w-4xl mx-auto px-6 py-4 flex items-center gap-4">
                     <button
-                        onClick={() => router.back()}
+                        onClick={goBack}
                         className="p-2 hover:bg-gray-100 rounded-lg"
                     >
                         <ArrowLeft className="w-5 h-5 text-gray-600" />
@@ -222,8 +219,8 @@ export default function TeacherDoubtsPage() {
                             key={tab.key}
                             onClick={() => setFilter(tab.key)}
                             className={`px-4 py-2 rounded-full text-sm font-medium transition-all ${filter === tab.key
-                                    ? 'bg-indigo-600 text-white shadow-md'
-                                    : 'bg-white text-gray-600 hover:bg-gray-50'
+                                ? 'bg-indigo-600 text-white shadow-md'
+                                : 'bg-white text-gray-600 hover:bg-gray-50'
                                 }`}
                         >
                             {tab.label}
@@ -240,8 +237,8 @@ export default function TeacherDoubtsPage() {
                 ) : (
                     filteredDoubts.map(doubt => (
                         <div key={doubt.doubt_id} className={`bg-white rounded-2xl shadow-sm overflow-hidden transition-all ${doubt.flagged_for_teacher && !doubt.teacher_response
-                                ? 'ring-2 ring-red-200'
-                                : ''
+                            ? 'ring-2 ring-red-200'
+                            : ''
                             }`}>
                             {/* Doubt Header */}
                             <button

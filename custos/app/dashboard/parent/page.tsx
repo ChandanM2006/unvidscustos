@@ -7,7 +7,8 @@ import {
     Bell, Loader2, Users, ChevronRight, Heart,
     Flame, Zap, Trophy, CheckCircle, Clock,
     MessageSquare, AlertCircle, Star, ArrowRight,
-    CalendarDays, BookOpen, Award, Sparkles, LogOut
+    CalendarDays, BookOpen, Award, Sparkles, LogOut,
+    IndianRupee, CreditCard, Calendar, Newspaper
 } from 'lucide-react'
 
 // ── Types ────────────────────────────────────────────────
@@ -15,6 +16,7 @@ import {
 interface ChildActivity {
     student_id: string
     full_name: string
+    class_id: string | null
     class_name: string
     section_name: string
     today_status: 'completed' | 'pending' | 'missed'
@@ -63,6 +65,8 @@ export default function ParentDashboard() {
     const [loading, setLoading] = useState(true)
     const [parent, setParent] = useState<any>(null)
     const [children, setChildren] = useState<ChildActivity[]>([])
+    const [classTeacherId, setClassTeacherId] = useState<string | null>(null)
+    const [classTeacherName, setClassTeacherName] = useState<string>('')
     const [currentTime] = useState(new Date())
     const [error, setError] = useState<string | null>(null)
 
@@ -85,7 +89,7 @@ export default function ParentDashboard() {
                 .single()
 
             if (!userData || userData.role !== 'parent') {
-                router.push('/dashboard')
+                router.replace('/dashboard/redirect')
                 return
             }
 
@@ -95,7 +99,14 @@ export default function ParentDashboard() {
             const res = await fetch(`/api/parent/children?parentId=${userData.user_id}`)
             if (res.ok) {
                 const data = await res.json()
-                setChildren(data.children || [])
+                const loadedChildren = data.children || []
+                setChildren(loadedChildren)
+
+                // Get class teacher from the API response (first child)
+                if (loadedChildren.length > 0 && loadedChildren[0].class_teacher_id) {
+                    setClassTeacherId(loadedChildren[0].class_teacher_id)
+                    setClassTeacherName(loadedChildren[0].class_teacher_name || '')
+                }
             } else {
                 // Fallback: load from direct DB query
                 await loadChildrenDirect(userData)
@@ -118,15 +129,6 @@ export default function ParentDashboard() {
             let childIds: string[] = []
             if (links && links.length > 0) {
                 childIds = links.map(l => l.student_id)
-            } else {
-                // Demo mode: show school's first 2 students
-                const { data: students } = await supabase
-                    .from('users')
-                    .select('user_id')
-                    .eq('school_id', userData.school_id)
-                    .eq('role', 'student')
-                    .limit(2)
-                if (students) childIds = students.map(s => s.user_id)
             }
 
             if (childIds.length === 0) return
@@ -402,10 +404,10 @@ export default function ParentDashboard() {
                                             <div className="h-2 bg-white/10 rounded-full overflow-hidden">
                                                 <div
                                                     className={`h-full rounded-full transition-all duration-700 ${isPerfectWeek
-                                                            ? 'bg-gradient-to-r from-yellow-400 to-amber-400'
-                                                            : weekPct >= 70
-                                                                ? 'bg-gradient-to-r from-emerald-500 to-cyan-400'
-                                                                : 'bg-gradient-to-r from-fuchsia-500 to-purple-500'
+                                                        ? 'bg-gradient-to-r from-yellow-400 to-amber-400'
+                                                        : weekPct >= 70
+                                                            ? 'bg-gradient-to-r from-emerald-500 to-cyan-400'
+                                                            : 'bg-gradient-to-r from-fuchsia-500 to-purple-500'
                                                         }`}
                                                     style={{ width: `${weekPct}%` }}
                                                 />
@@ -448,14 +450,6 @@ export default function ParentDashboard() {
                                             <BookOpen className="w-4 h-4" />
                                             View Details
                                         </button>
-                                        <div className="w-px bg-white/5" />
-                                        <button
-                                            onClick={() => router.push(`/dashboard/parent/messages?childId=${child.student_id}`)}
-                                            className="flex-1 flex items-center justify-center gap-2 px-4 py-3.5 text-sm font-medium text-fuchsia-300 hover:bg-white/5 hover:text-white transition-colors"
-                                        >
-                                            <MessageSquare className="w-4 h-4" />
-                                            Message Teacher
-                                        </button>
                                     </div>
                                 </div>
                             )
@@ -477,6 +471,50 @@ export default function ParentDashboard() {
                     </div>
                 )}
 
+                {/* Calendar & Posts Quick Access */}
+                <div className="grid grid-cols-2 gap-4">
+                    <button
+                        onClick={() => router.push('/dashboard/calendar')}
+                        className="bg-white/[0.06] backdrop-blur-xl border border-white/10 rounded-2xl p-5 hover:border-indigo-500/30 transition-all text-left"
+                    >
+                        <div className="w-12 h-12 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl flex items-center justify-center mb-3 shadow-lg shadow-indigo-500/20">
+                            <Calendar className="w-6 h-6 text-white" />
+                        </div>
+                        <h3 className="font-bold text-white">Calendar</h3>
+                        <p className="text-purple-300/50 text-xs mt-0.5">Events & Schedules</p>
+                    </button>
+                    <button
+                        onClick={() => router.push('/dashboard/posts')}
+                        className="bg-white/[0.06] backdrop-blur-xl border border-white/10 rounded-2xl p-5 hover:border-rose-500/30 transition-all text-left"
+                    >
+                        <div className="w-12 h-12 bg-gradient-to-br from-rose-500 to-orange-600 rounded-xl flex items-center justify-center mb-3 shadow-lg shadow-rose-500/20">
+                            <Newspaper className="w-6 h-6 text-white" />
+                        </div>
+                        <h3 className="font-bold text-white">Posts</h3>
+                        <p className="text-purple-300/50 text-xs mt-0.5">School Announcements</p>
+                    </button>
+                </div>
+
+                {/* Pay Fees Card */}
+                <div className="bg-gradient-to-r from-emerald-600/30 to-green-600/30 border border-emerald-500/20 rounded-2xl p-6">
+                    <div className="flex items-center gap-4">
+                        <div className="w-14 h-14 bg-gradient-to-br from-emerald-500 to-green-600 rounded-2xl flex items-center justify-center shadow-lg shadow-emerald-500/20">
+                            <IndianRupee className="w-7 h-7 text-white" />
+                        </div>
+                        <div className="flex-1">
+                            <h3 className="font-bold text-lg text-white">Fee Payment</h3>
+                            <p className="text-emerald-200/60 text-sm">Pay school fees securely via Razorpay</p>
+                        </div>
+                        <button
+                            onClick={() => router.push('/dashboard/parent/fees')}
+                            className="px-5 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-white rounded-xl font-medium transition-colors flex items-center gap-2 text-sm shadow-lg shadow-emerald-500/20"
+                        >
+                            <CreditCard className="w-4 h-4" />
+                            Pay Fees
+                        </button>
+                    </div>
+                </div>
+
                 {/* Privacy Notice */}
                 <div className="bg-white/[0.03] border border-white/5 rounded-xl p-4 text-center">
                     <p className="text-xs text-purple-300/40">
@@ -487,19 +525,32 @@ export default function ParentDashboard() {
 
                 {/* Contact School */}
                 <div className="bg-gradient-to-r from-fuchsia-600/30 to-purple-600/30 border border-fuchsia-500/20 rounded-2xl p-6">
-                    <h3 className="font-bold text-lg text-white mb-2">
+                    <h3 className="font-bold text-lg text-white mb-1">
                         Need to discuss your child&apos;s progress?
                     </h3>
-                    <p className="text-purple-200/60 text-sm mb-4">
-                        Schedule a parent-teacher meeting or send a direct message to the class teacher.
+                    <p className="text-purple-200/60 text-sm mb-5">
+                        {classTeacherName
+                            ? `Reach your child's class teacher ${classTeacherName} or any subject teacher.`
+                            : 'Send a message to any of your child\'s teachers.'}
                     </p>
-                    <button
-                        onClick={() => router.push('/dashboard/parent/messages')}
-                        className="px-6 py-2.5 bg-fuchsia-500 hover:bg-fuchsia-400 text-white rounded-xl font-medium transition-colors flex items-center gap-2"
-                    >
-                        <MessageSquare className="w-4 h-4" />
-                        Contact School
-                    </button>
+                    <div className="flex flex-wrap gap-3">
+                        {classTeacherId && (
+                            <button
+                                onClick={() => router.push(`/dashboard/parent/messages?teacherId=${classTeacherId}`)}
+                                className="px-5 py-2.5 bg-fuchsia-500 hover:bg-fuchsia-400 text-white rounded-xl font-medium transition-colors flex items-center gap-2 text-sm"
+                            >
+                                <MessageSquare className="w-4 h-4" />
+                                Message Class Teacher
+                            </button>
+                        )}
+                        <button
+                            onClick={() => router.push('/dashboard/parent/messages')}
+                            className="px-5 py-2.5 bg-white/10 hover:bg-white/20 border border-white/20 text-white rounded-xl font-medium transition-colors flex items-center gap-2 text-sm"
+                        >
+                            <MessageSquare className="w-4 h-4" />
+                            Message Teachers
+                        </button>
+                    </div>
                 </div>
             </main>
         </div>

@@ -5,7 +5,8 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import {
     ArrowLeft, Clock, Users, BookOpen, CheckCircle, AlertCircle,
-    Radio, RefreshCw, ChevronRight, Loader2, Play, Pause, Timer
+    Radio, RefreshCw, ChevronRight, Loader2, Play, Pause, Timer,
+    Check, Target
 } from 'lucide-react'
 
 interface LiveClass {
@@ -22,6 +23,24 @@ interface LiveClass {
     total_students?: number
 }
 
+interface LiveSessionData {
+    session_id: string
+    entry_id: string
+    teacher_name: string
+    class_name: string
+    section_name: string
+    subject_name: string
+    status: string
+    started_at: string | null
+    ended_at: string | null
+    duration_minutes: number | null
+    scheduled_topics: any[]
+    covered_topics: any[]
+    teacher_notes: string | null
+    slot_start_time: string
+    slot_end_time: string
+}
+
 interface TimeSlot {
     slot_id: string
     slot_number: number
@@ -36,13 +55,16 @@ export default function LiveClassesPage() {
     const [loading, setLoading] = useState(true)
     const [currentTime, setCurrentTime] = useState(new Date())
     const [liveClasses, setLiveClasses] = useState<LiveClass[]>([])
+    const [liveSessions, setLiveSessions] = useState<LiveSessionData[]>([])
     const [timeSlots, setTimeSlots] = useState<TimeSlot[]>([])
     const [currentSlot, setCurrentSlot] = useState<TimeSlot | null>(null)
     const [stats, setStats] = useState({
         totalClasses: 0,
         inProgress: 0,
         completed: 0,
-        upcoming: 0
+        upcoming: 0,
+        teacherSessionsLive: 0,
+        teacherSessionsDone: 0
     })
 
     // Update current time every minute
@@ -60,45 +82,91 @@ export default function LiveClassesPage() {
     useEffect(() => {
         updateCurrentSlot()
         updateClassStatuses()
-    }, [currentTime, timeSlots])
+    }, [currentTime, timeSlots, liveSessions])
 
     async function loadData() {
         try {
+            // Get current user's school_id
+            const { data: { session } } = await supabase.auth.getSession()
+            if (!session) return
+
+            const { data: userData } = await supabase
+                .from('users')
+                .select('school_id')
+                .eq('email', session.user.email)
+                .single()
+
+            const schoolId = userData?.school_id
+
             // Get today's day of week (0=Sun, 1=Mon, etc.)
             const today = new Date().getDay()
 
-            // Load time slots
-            const { data: slots } = await supabase
+            // Load time slots for this school
+            let slotsQuery = supabase
                 .from('timetable_slots')
                 .select('*')
                 .order('slot_number')
 
-            if (slots) setTimeSlots(slots)
+            if (schoolId) slotsQuery = slotsQuery.eq('school_id', schoolId)
+
+            const { data: slots, error: slotsError } = await slotsQuery
+
+            if (!slotsError && slots) setTimeSlots(slots)
 
             // Load today's timetable entries with related data
-            const { data: entries, error } = await supabase
+            let entriesQuery = supabase
                 .from('timetable_entries')
                 .select(`
                     *,
                     classes (name),
                     sections (name),
-                    subjects (name),
                     users:teacher_id (full_name),
                     timetable_slots (*)
                 `)
                 .eq('day_of_week', today)
 
+            const { data: entries, error } = await entriesQuery
+
             if (error) {
-                console.error('Error loading timetable:', error)
+                // Table may not exist yet or schema cache issue — silently fall back to empty
+                if (error.code === '42P01' || error.message?.includes('does not exist') || error.code === 'PGRST204' || error.message?.includes('Could not find a relationship')) {
+                    setLiveClasses([])
+                    updateStats([], [])
+                    return
+                }
+                console.error('Error loading timetable:', error.message || error.code || JSON.stringify(error))
                 return
             }
 
+            // Filter by school_id if available (entries are linked via classes which have school_id)
+            let filteredEntries = entries || []
+            if (schoolId && filteredEntries.length > 0) {
+                // Get class IDs for this school
+                const { data: schoolClasses } = await supabase
+                    .from('classes')
+                    .select('class_id')
+                    .eq('school_id', schoolId)
+                const classIds = new Set(schoolClasses?.map(c => c.class_id) || [])
+                filteredEntries = filteredEntries.filter((e: any) => classIds.has(e.class_id))
+            }
+
+            // Look up subject names separately (avoids PostgREST schema cache issues)
+            const subjectIds = [...new Set(filteredEntries.map((e: any) => e.subject_id).filter(Boolean))]
+            let subjectMap: Record<string, string> = {}
+            if (subjectIds.length > 0) {
+                const { data: subjectsData } = await supabase
+                    .from('subjects')
+                    .select('subject_id, name')
+                    .in('subject_id', subjectIds)
+                subjectsData?.forEach((s: any) => { subjectMap[s.subject_id] = s.name })
+            }
+
             // Format data
-            const formatted: LiveClass[] = (entries || []).map((entry: any) => ({
+            const formatted: LiveClass[] = filteredEntries.map((entry: any) => ({
                 entry_id: entry.entry_id,
                 class_name: entry.classes?.name || 'Unknown',
                 section_name: entry.sections?.name || '',
-                subject_name: entry.subjects?.name || 'Unknown',
+                subject_name: subjectMap[entry.subject_id] || 'Unknown',
                 teacher_name: entry.users?.full_name || 'Not Assigned',
                 room_number: entry.room_number,
                 start_time: entry.timetable_slots?.start_time || '',
@@ -107,13 +175,31 @@ export default function LiveClassesPage() {
             }))
 
             setLiveClasses(formatted)
-            updateStats(formatted)
+
+            // Load teacher live sessions FIRST, then compute stats
+            const sessions = await loadLiveSessions()
+            updateStats(formatted, sessions)
 
         } catch (error) {
             console.error('Error:', error)
         } finally {
             setLoading(false)
         }
+    }
+
+    async function loadLiveSessions(): Promise<LiveSessionData[]> {
+        try {
+            const res = await fetch('/api/admin/live-sessions')
+            if (res.ok) {
+                const data = await res.json()
+                const sessions = data.sessions || []
+                setLiveSessions(sessions)
+                return sessions
+            }
+        } catch (err) {
+            console.error('Error loading live sessions:', err)
+        }
+        return []
     }
 
     function updateCurrentSlot() {
@@ -128,10 +214,23 @@ export default function LiveClassesPage() {
     }
 
     function updateClassStatuses() {
+        if (liveClasses.length === 0) return
+
         const now = currentTime
         const currentTimeStr = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`
 
         const updated = liveClasses.map(cls => {
+            // First check if there's a live session for this entry
+            const session = liveSessions.find(s => s.entry_id === cls.entry_id)
+
+            if (session?.status === 'completed') {
+                return { ...cls, status: 'completed' as const }
+            }
+            if (session?.status === 'in_progress') {
+                return { ...cls, status: 'in_progress' as const }
+            }
+
+            // Fallback: time-based status
             let status: 'upcoming' | 'in_progress' | 'completed' = 'upcoming'
 
             if (currentTimeStr >= cls.start_time.slice(0, 5) && currentTimeStr < cls.end_time.slice(0, 5)) {
@@ -144,16 +243,35 @@ export default function LiveClassesPage() {
         })
 
         setLiveClasses(updated)
-        updateStats(updated)
+        updateStats(updated, liveSessions)
     }
 
-    function updateStats(classes: LiveClass[]) {
+    function updateStats(classes: LiveClass[], sessions?: LiveSessionData[]) {
+        const sessionList = sessions || liveSessions
+        const liveCount = sessionList.filter(s => s.status === 'in_progress').length
+        const doneCount = sessionList.filter(s => s.status === 'completed').length
         setStats({
             totalClasses: classes.length,
             inProgress: classes.filter(c => c.status === 'in_progress').length,
             completed: classes.filter(c => c.status === 'completed').length,
-            upcoming: classes.filter(c => c.status === 'upcoming').length
+            upcoming: classes.filter(c => c.status === 'upcoming').length,
+            teacherSessionsLive: liveCount,
+            teacherSessionsDone: doneCount
         })
+    }
+
+    function getSessionForEntry(entryId: string): LiveSessionData | undefined {
+        return liveSessions.find(s => s.entry_id === entryId)
+    }
+
+    function getSessionElapsed(session: LiveSessionData): string {
+        if (!session.started_at) return ''
+        if (session.status === 'completed' && session.duration_minutes) {
+            return `${session.duration_minutes} min`
+        }
+        const start = new Date(session.started_at).getTime()
+        const elapsed = Math.floor((Date.now() - start) / 60000)
+        return `${elapsed} min`
     }
 
     function formatTime(time: string) {
@@ -208,7 +326,7 @@ export default function LiveClassesPage() {
             <header className="border-b border-white/10 backdrop-blur-lg bg-black/20 sticky top-0 z-10">
                 <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
                     <div className="flex items-center gap-4">
-                        <button onClick={() => router.push('/dashboard')} className="p-2 hover:bg-white/10 rounded-lg">
+                        <button onClick={() => router.back()} className="p-2 hover:bg-white/10 rounded-lg">
                             <ArrowLeft className="w-5 h-5" />
                         </button>
                         <div>
@@ -299,6 +417,28 @@ export default function LiveClassesPage() {
                     </div>
                 </div>
 
+                {/* Teacher Sessions Summary */}
+                {liveSessions.length > 0 && (
+                    <div className="grid grid-cols-2 gap-4 mb-8">
+                        <div className="bg-green-500/10 backdrop-blur-lg rounded-xl p-4 border border-green-500/20">
+                            <div className="flex items-center gap-2 mb-1">
+                                <Radio className="w-4 h-4 text-green-400 animate-pulse" />
+                                <p className="text-green-300 text-sm font-medium">Teacher Sessions LIVE</p>
+                            </div>
+                            <p className="text-3xl font-bold text-green-400">{stats.teacherSessionsLive}</p>
+                            <p className="text-xs text-gray-500 mt-1">Teachers who clicked "Start Class"</p>
+                        </div>
+                        <div className="bg-purple-500/10 backdrop-blur-lg rounded-xl p-4 border border-purple-500/20">
+                            <div className="flex items-center gap-2 mb-1">
+                                <Target className="w-4 h-4 text-purple-400" />
+                                <p className="text-purple-300 text-sm font-medium">Sessions Completed</p>
+                            </div>
+                            <p className="text-3xl font-bold text-purple-400">{stats.teacherSessionsDone}</p>
+                            <p className="text-xs text-gray-500 mt-1">With topic coverage reports</p>
+                        </div>
+                    </div>
+                )}
+
                 {/* Live Classes Grid */}
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                     {liveClasses
@@ -307,56 +447,135 @@ export default function LiveClassesPage() {
                             const order = { in_progress: 0, upcoming: 1, completed: 2 }
                             return order[a.status] - order[b.status]
                         })
-                        .map(cls => (
-                            <div
-                                key={cls.entry_id}
-                                className={`rounded-xl p-5 border transition-all ${cls.status === 'in_progress'
-                                        ? 'bg-green-500/10 border-green-500/30 ring-2 ring-green-500/20'
-                                        : cls.status === 'completed'
-                                            ? 'bg-white/5 border-white/10 opacity-60'
-                                            : 'bg-white/10 border-white/10'
-                                    }`}
-                            >
-                                <div className="flex items-start justify-between mb-3">
-                                    <div>
-                                        <h3 className="font-bold text-lg">
-                                            {cls.class_name} {cls.section_name}
-                                        </h3>
-                                        <p className="text-purple-300">{cls.subject_name}</p>
-                                    </div>
-                                    {getStatusBadge(cls.status)}
-                                </div>
+                        .map(cls => {
+                            const session = getSessionForEntry(cls.entry_id)
+                            const hasActiveSession = session?.status === 'in_progress'
+                            const hasCompletedSession = session?.status === 'completed'
 
-                                <div className="space-y-2 text-sm">
-                                    <div className="flex items-center gap-2 text-gray-300">
-                                        <Users className="w-4 h-4" />
-                                        <span>{cls.teacher_name}</span>
+                            return (
+                                <div
+                                    key={cls.entry_id}
+                                    className={`rounded-xl p-5 border transition-all ${hasActiveSession
+                                        ? 'bg-green-500/10 border-green-500/30 ring-2 ring-green-500/20'
+                                        : cls.status === 'in_progress'
+                                            ? 'bg-green-500/10 border-green-500/30 ring-1 ring-green-500/20'
+                                            : cls.status === 'completed'
+                                                ? 'bg-white/5 border-white/10 opacity-60'
+                                                : 'bg-white/10 border-white/10'
+                                        }`}
+                                >
+                                    <div className="flex items-start justify-between mb-3">
+                                        <div>
+                                            <h3 className="font-bold text-lg">
+                                                {cls.class_name} {cls.section_name}
+                                            </h3>
+                                            <p className="text-purple-300">{cls.subject_name}</p>
+                                        </div>
+                                        <div className="flex flex-col items-end gap-1">
+                                            {getStatusBadge(cls.status)}
+                                            {hasActiveSession && (
+                                                <span className="px-2 py-0.5 bg-green-500/20 text-green-300 rounded-full text-[10px] font-bold">
+                                                    Teacher LIVE
+                                                </span>
+                                            )}
+                                            {hasCompletedSession && (
+                                                <span className="px-2 py-0.5 bg-purple-500/20 text-purple-300 rounded-full text-[10px] font-bold">
+                                                    Session Done
+                                                </span>
+                                            )}
+                                        </div>
                                     </div>
-                                    <div className="flex items-center gap-2 text-gray-300">
-                                        <Clock className="w-4 h-4" />
-                                        <span>{formatTime(cls.start_time)} - {formatTime(cls.end_time)}</span>
-                                    </div>
-                                    {cls.room_number && (
+
+                                    <div className="space-y-2 text-sm">
                                         <div className="flex items-center gap-2 text-gray-300">
-                                            <BookOpen className="w-4 h-4" />
-                                            <span>Room {cls.room_number}</span>
+                                            <Users className="w-4 h-4" />
+                                            <span>{cls.teacher_name}</span>
+                                        </div>
+                                        <div className="flex items-center gap-2 text-gray-300">
+                                            <Clock className="w-4 h-4" />
+                                            <span>{formatTime(cls.start_time)} - {formatTime(cls.end_time)}</span>
+                                        </div>
+                                        {cls.room_number && (
+                                            <div className="flex items-center gap-2 text-gray-300">
+                                                <BookOpen className="w-4 h-4" />
+                                                <span>Room {cls.room_number}</span>
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {/* Teacher Session Details */}
+                                    {session && (
+                                        <div className="mt-4 pt-3 border-t border-white/10">
+                                            {/* Session Timing */}
+                                            <div className="flex items-center justify-between text-sm mb-3">
+                                                <span className={hasActiveSession ? 'text-green-300' : 'text-gray-400'}>
+                                                    {hasActiveSession ? 'Session Active' : 'Session Ended'}
+                                                </span>
+                                                <span className={`font-mono font-bold ${hasActiveSession ? 'text-green-400' : 'text-gray-400'}`}>
+                                                    {getSessionElapsed(session)}
+                                                </span>
+                                            </div>
+
+                                            {/* Scheduled Topics */}
+                                            {(session.scheduled_topics || []).length > 0 && (
+                                                <div className="mb-2">
+                                                    <p className="text-[10px] text-gray-500 mb-1 font-medium uppercase">Topics</p>
+                                                    <div className="flex flex-wrap gap-1">
+                                                        {(session.scheduled_topics || []).map((topic: any, i: number) => {
+                                                            const isCovered = (session.covered_topics || []).some(
+                                                                (ct: any) => ct.topic_id === topic.topic_id
+                                                            )
+                                                            return (
+                                                                <span
+                                                                    key={topic.topic_id || i}
+                                                                    className={`px-2 py-0.5 text-[10px] rounded-md border flex items-center gap-0.5 ${isCovered
+                                                                        ? 'bg-green-500/15 border-green-500/30 text-green-300'
+                                                                        : hasCompletedSession
+                                                                            ? 'bg-red-500/10 border-red-500/20 text-red-300 line-through'
+                                                                            : 'bg-white/5 border-white/10 text-gray-400'
+                                                                        }`}
+                                                                >
+                                                                    {isCovered && <Check className="w-2.5 h-2.5" />}
+                                                                    {topic.topic_title}
+                                                                </span>
+                                                            )
+                                                        })}
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            {/* Coverage Summary */}
+                                            {hasCompletedSession && (
+                                                <div className="text-xs text-gray-500 mt-2">
+                                                    <Check className="w-3 h-3 inline mr-1 text-green-400" />
+                                                    {(session.covered_topics || []).length}/{(session.scheduled_topics || []).length} topics covered
+                                                    {session.teacher_notes && (
+                                                        <p className="mt-1 italic text-gray-600">Note: "{session.teacher_notes}"</p>
+                                                    )}
+                                                </div>
+                                            )}
+
+                                            {hasActiveSession && (
+                                                <div className="flex items-center gap-1 text-green-400 text-sm mt-1">
+                                                    <Radio className="w-3 h-3 animate-pulse" />
+                                                    <span>Teacher is live</span>
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+
+                                    {/* Fallback for non-session classes */}
+                                    {!session && cls.status === 'in_progress' && (
+                                        <div className="mt-4 pt-3 border-t border-white/10">
+                                            <div className="flex items-center justify-between text-sm">
+                                                <span className="text-amber-300">No session started</span>
+                                                <span className="text-xs text-gray-500">Teacher hasn't clicked Start</span>
+                                            </div>
                                         </div>
                                     )}
                                 </div>
-
-                                {cls.status === 'in_progress' && (
-                                    <div className="mt-4 pt-3 border-t border-white/10">
-                                        <div className="flex items-center justify-between text-sm">
-                                            <span className="text-green-300">Session Active</span>
-                                            <div className="flex items-center gap-1 text-green-400">
-                                                <Radio className="w-3 h-3 animate-pulse" />
-                                                <span>Live</span>
-                                            </div>
-                                        </div>
-                                    </div>
-                                )}
-                            </div>
-                        ))}
+                            )
+                        })}
                 </div>
 
                 {liveClasses.length === 0 && (

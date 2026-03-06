@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
-import { useRouter } from 'next/navigation'
+import { useSmartBack } from '@/lib/navigation'
 import { ArrowLeft, Plus, Pencil, Trash2, Search, UserPlus, X, Loader2, Eye, EyeOff } from 'lucide-react'
 
 interface Class {
@@ -27,7 +27,7 @@ interface User {
 }
 
 export default function UsersPage() {
-    const router = useRouter()
+    const { goBack, router } = useSmartBack('/dashboard/manage')
     const [users, setUsers] = useState<User[]>([])
     const [filteredUsers, setFilteredUsers] = useState<User[]>([])
     const [classes, setClasses] = useState<Class[]>([])
@@ -95,12 +95,16 @@ export default function UsersPage() {
 
                 if (classesData) setClasses(classesData)
 
-                // Load sections
-                const { data: sectionsData } = await supabase
-                    .from('sections')
-                    .select('*')
+                // Load sections filtered to this school's classes
+                const classIds = (classesData || []).map((c: Class) => c.class_id)
+                if (classIds.length > 0) {
+                    const { data: sectionsData } = await supabase
+                        .from('sections')
+                        .select('*')
+                        .in('class_id', classIds)
 
-                if (sectionsData) setSections(sectionsData)
+                    if (sectionsData) setSections(sectionsData)
+                }
             }
         } catch (error) {
             console.error('Error loading data:', error)
@@ -167,20 +171,24 @@ export default function UsersPage() {
 
         try {
             if (editingUser) {
-                // Update existing user
-                const updateData: any = {
-                    full_name: formData.full_name,
-                    role: formData.role,
-                    class_id: formData.class_id || null,
-                    section_id: formData.section_id || null
+                // Update existing user via API (bypasses RLS)
+                const response = await fetch('/api/users/update', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        user_id: editingUser.user_id,
+                        full_name: formData.full_name,
+                        role: formData.role,
+                        class_id: formData.class_id || null,
+                        section_id: formData.section_id || null
+                    })
+                })
+
+                const data = await response.json()
+                if (!response.ok) {
+                    throw new Error(data.error || 'Failed to update user')
                 }
 
-                const { error } = await supabase
-                    .from('users')
-                    .update(updateData)
-                    .eq('user_id', editingUser.user_id)
-
-                if (error) throw error
                 alert('User updated successfully!')
             } else {
                 // Create new user via API route (uses admin API, bypasses email confirmation)
@@ -280,7 +288,7 @@ export default function UsersPage() {
                 <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                     <div className="flex items-center justify-between h-16">
                         <button
-                            onClick={() => router.push('/dashboard/manage')}
+                            onClick={goBack}
                             className="flex items-center space-x-2 text-gray-600 hover:text-gray-900 transition-colors"
                         >
                             <ArrowLeft className="w-5 h-5" />
@@ -432,7 +440,11 @@ export default function UsersPage() {
                                             {user.email}
                                         </td>
                                         <td className="px-6 py-4 text-gray-600">
-                                            {userClass ? `${userClass.name}${userSection ? ` - ${userSection.name}` : ''}` : '-'}
+                                            {userClass
+                                                ? (user.role === 'teacher'
+                                                    ? `Class Teacher: ${userClass.name}${userSection ? ` - ${userSection.name}` : ''}`
+                                                    : `${userClass.name}${userSection ? ` - ${userSection.name}` : ''}`)
+                                                : '-'}
                                         </td>
                                         <td className="px-6 py-4 text-gray-600">
                                             {new Date(user.created_at).toLocaleDateString()}
@@ -536,7 +548,38 @@ export default function UsersPage() {
                                     <option value="super_admin">Super Admin</option>
                                 </select>
                             </div>
-                            {(formData.role === 'student' || formData.role === 'teacher') && (
+                            {formData.role === 'teacher' && (
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                                        Class Teacher Of
+                                    </label>
+                                    <select
+                                        value={formData.class_id && formData.section_id ? `${formData.class_id}|${formData.section_id}` : ''}
+                                        onChange={(e) => {
+                                            if (!e.target.value) {
+                                                setFormData(f => ({ ...f, class_id: '', section_id: '' }))
+                                            } else {
+                                                const [cid, sid] = e.target.value.split('|')
+                                                setFormData(f => ({ ...f, class_id: cid, section_id: sid }))
+                                            }
+                                        }}
+                                        className="w-full p-3 border border-gray-300 rounded-lg text-gray-900 bg-white"
+                                    >
+                                        <option value="">Not a Class Teacher</option>
+                                        {classes.map(cls => {
+                                            const classSections = sections.filter(s => s.class_id === cls.class_id)
+                                            if (classSections.length === 0) return null
+                                            return classSections.map(sec => (
+                                                <option key={`${cls.class_id}|${sec.section_id}`} value={`${cls.class_id}|${sec.section_id}`}>
+                                                    {cls.name} - {sec.name}
+                                                </option>
+                                            ))
+                                        })}
+                                    </select>
+                                    <p className="text-xs text-gray-500 mt-1">Assign this teacher as the class teacher for a specific class-section</p>
+                                </div>
+                            )}
+                            {formData.role === 'student' && (
                                 <>
                                     <div>
                                         <label className="block text-sm font-medium text-gray-700 mb-1">Class</label>
@@ -551,7 +594,7 @@ export default function UsersPage() {
                                             ))}
                                         </select>
                                     </div>
-                                    {formData.class_id && formData.role === 'student' && (
+                                    {formData.class_id && (
                                         <div>
                                             <label className="block text-sm font-medium text-gray-700 mb-1">Section</label>
                                             <select

@@ -2,7 +2,8 @@
 
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
-import { useRouter, useParams } from 'next/navigation'
+import { useParams } from 'next/navigation'
+import { useSmartBack } from '@/lib/navigation'
 import { ArrowLeft, FileText, BookOpen, Calculator, Lightbulb, ChevronRight, Trash2, Edit, Download } from 'lucide-react'
 
 interface SyllabusDocument {
@@ -25,7 +26,7 @@ interface SyllabusDocument {
 }
 
 export default function SyllabusDetailPage() {
-    const router = useRouter()
+    const { goBack, router } = useSmartBack('/dashboard/manage/syllabus')
     const params = useParams()
     const documentId = params?.id as string
 
@@ -139,7 +140,7 @@ export default function SyllabusDetailPage() {
                 <div className="flex items-center justify-between mb-8">
                     <div className="flex items-center gap-4">
                         <button
-                            onClick={() => router.push('/dashboard/manage/syllabus')}
+                            onClick={goBack}
                             className="p-2 hover:bg-white rounded-lg transition-colors"
                         >
                             <ArrowLeft className="w-6 h-6 text-gray-600" />

@@ -1,7 +1,8 @@
 'use client'
 
 import { useState, useEffect, useRef, useCallback, Suspense } from 'react'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { useSearchParams } from 'next/navigation'
+import { useSmartBack } from '@/lib/navigation'
 import { supabase } from '@/lib/supabase'
 import {
     ArrowLeft, Send, Loader2, Camera, Mic, Bot, User,
@@ -35,7 +36,7 @@ interface TopicOption {
 // ─── Component ──────────────────────────────────────────
 
 function TutorPageInner() {
-    const router = useRouter()
+    const { goBack, router } = useSmartBack('/dashboard/student')
     const searchParams = useSearchParams()
     const initialDoubtId = searchParams.get('doubt_id')
 
@@ -370,7 +371,7 @@ function TutorPageInner() {
             <header className="bg-white/5 backdrop-blur-lg border-b border-white/10 px-4 py-3 flex items-center justify-between z-20">
                 <div className="flex items-center gap-3">
                     <button
-                        onClick={() => router.push('/dashboard/student')}
+                        onClick={goBack}
                         className="p-2 hover:bg-white/10 rounded-lg transition-colors"
                     >
                         <ArrowLeft className="w-5 h-5 text-indigo-300" />

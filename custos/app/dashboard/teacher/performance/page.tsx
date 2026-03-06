@@ -1,7 +1,8 @@
 'use client'
 
-import { useState, useEffect, useCallback, useMemo } from 'react'
-import { useRouter } from 'next/navigation'
+import { useState, useEffect, useCallback, useMemo, Suspense } from 'react'
+import { useSmartBack } from '@/lib/navigation'
+import { useSearchParams, usePathname } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import {
     ArrowLeft, Loader2, BarChart3, Users, AlertTriangle, TrendingUp,
@@ -57,8 +58,10 @@ type FilterMode = 'all' | 'struggling' | 'on_track' | 'excellent'
 
 // ─── Component ──────────────────────────────────────────
 
-export default function TeacherPerformancePage() {
-    const router = useRouter()
+function TeacherPerformancePageInner() {
+    const { goBack, router } = useSmartBack('/dashboard/teacher')
+    const searchParams = useSearchParams()
+    const pathname = usePathname()
     const [loading, setLoading] = useState(true)
     const [teacherId, setTeacherId] = useState('')
     const [sections, setSections] = useState<SectionOption[]>([])
@@ -112,13 +115,26 @@ export default function TeacherPerformancePage() {
 
             setTeacherId(user.user_id)
 
-            // Get sections for this school
-            const { data: allSections } = await supabase
-                .from('sections')
-                .select('section_id, name, class_id, classes(name)')
-                .order('name')
+            // Get classes for this school first
+            const { data: classesData } = await supabase
+                .from('classes')
+                .select('class_id')
+                .eq('school_id', user.school_id)
 
-            const sectionOptions: SectionOption[] = (allSections || []).map(s => ({
+            const classIds = (classesData || []).map((c: any) => c.class_id)
+
+            // Get sections filtered to this school's classes
+            let allSections: any[] = []
+            if (classIds.length > 0) {
+                const { data } = await supabase
+                    .from('sections')
+                    .select('section_id, name, class_id, classes(name)')
+                    .in('class_id', classIds)
+                    .order('name')
+                allSections = data || []
+            }
+
+            const sectionOptions: SectionOption[] = allSections.map(s => ({
                 section_id: s.section_id,
                 section_name: s.name,
                 class_name: (s.classes as any)?.name || 'Unknown',
@@ -126,11 +142,20 @@ export default function TeacherPerformancePage() {
 
             setSections(sectionOptions)
 
-            if (sectionOptions.length > 0) {
+            // Restore selected section from URL, or default to first
+            const urlSection = searchParams.get('section')
+            if (urlSection && sectionOptions.some(s => s.section_id === urlSection)) {
+                setSelectedSection(urlSection)
+            } else if (sectionOptions.length > 0) {
                 setSelectedSection(sectionOptions[0].section_id)
             }
 
-            setLoading(false)
+            // Don't set loading=false here — loadClassData() will handle it
+            // once it finishes fetching. This prevents a brief flash of the
+            // empty page skeleton between init completing and data loading.
+            if (sectionOptions.length === 0) {
+                setLoading(false) // No sections → loadClassData won't fire
+            }
         } catch (err) {
             console.error('[Performance] Init error:', err)
             setError('Failed to load teacher data')
@@ -455,7 +480,7 @@ export default function TeacherPerformancePage() {
                 <div className="max-w-7xl mx-auto flex items-center justify-between">
                     <div className="flex items-center gap-3">
                         <button
-                            onClick={() => router.push('/dashboard/teacher')}
+                            onClick={goBack}
                             className="p-2 hover:bg-white/10 rounded-lg transition-colors"
                         >
                             <ArrowLeft className="w-5 h-5 text-blue-300" />
@@ -483,7 +508,14 @@ export default function TeacherPerformancePage() {
                         {/* Section Selector */}
                         <select
                             value={selectedSection}
-                            onChange={(e) => setSelectedSection(e.target.value)}
+                            onChange={(e) => {
+                                const newSection = e.target.value
+                                setSelectedSection(newSection)
+                                // Update URL so back navigation preserves the selected section
+                                const params = new URLSearchParams(searchParams.toString())
+                                params.set('section', newSection)
+                                router.replace(`${pathname}?${params.toString()}`, { scroll: false })
+                            }}
                             className="bg-white/10 border border-white/20 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500/50"
                         >
                             {sections.map(s => (
@@ -975,5 +1007,17 @@ export default function TeacherPerformancePage() {
                 </div>
             )}
         </div>
+    )
+}
+
+export default function TeacherPerformancePage() {
+    return (
+        <Suspense fallback={
+            <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 via-blue-900 to-slate-900">
+                <Loader2 className="w-12 h-12 text-blue-400 animate-spin" />
+            </div>
+        }>
+            <TeacherPerformancePageInner />
+        </Suspense>
     )
 }

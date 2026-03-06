@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
+import { useSmartBack } from '@/lib/navigation'
 import { supabase } from '@/lib/supabase'
 import {
     ArrowLeft, Calendar, Clock, Loader2, Users
@@ -35,7 +35,7 @@ const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 
 const SCHOOL_DAYS = [1, 2, 3, 4, 5, 6] // Mon-Sat
 
 export default function ParentTimetablePage() {
-    const router = useRouter()
+    const { goBack, router } = useSmartBack('/dashboard/parent')
     const [loading, setLoading] = useState(true)
 
     const [children, setChildren] = useState<Child[]>([])
@@ -164,7 +164,7 @@ export default function ParentTimetablePage() {
             <header className="bg-white/5 backdrop-blur-lg border-b border-white/10 px-6 py-4">
                 <div className="max-w-7xl mx-auto flex items-center justify-between">
                     <div className="flex items-center gap-4">
-                        <button onClick={() => router.push('/dashboard/parent')} className="p-2 hover:bg-white/10 rounded-lg">
+                        <button onClick={goBack} className="p-2 hover:bg-white/10 rounded-lg">
                             <ArrowLeft className="w-5 h-5 text-purple-300" />
                         </button>
                         <div>

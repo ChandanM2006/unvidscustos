@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { useRouter } from 'next/navigation'
+import { useSmartBack } from '@/lib/navigation'
 import { supabase } from '@/lib/supabase'
 import {
     Brain, ArrowLeft, Loader2, Flame, Zap, Trophy, Target,
@@ -103,7 +103,7 @@ function formatMinutes(minutes: number): string {
 }
 
 export default function StudentAnalyticsPage() {
-    const router = useRouter()
+    const { goBack, router } = useSmartBack('/dashboard/student')
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState<string | null>(null)
     const [data, setData] = useState<AnalyticsData | null>(null)
@@ -128,7 +128,7 @@ export default function StudentAnalyticsPage() {
                 .single()
 
             if (!user || user.role !== 'student') {
-                router.push('/dashboard')
+                router.replace('/dashboard/redirect')
                 return
             }
 
@@ -190,7 +190,7 @@ export default function StudentAnalyticsPage() {
             <header className="sticky top-0 z-10 bg-indigo-950/80 backdrop-blur-lg border-b border-white/5">
                 <div className="max-w-2xl mx-auto px-4 py-3 flex items-center justify-between">
                     <button
-                        onClick={() => router.push('/dashboard/student')}
+                        onClick={goBack}
                         className="flex items-center gap-2 text-purple-300 hover:text-white transition-colors"
                     >
                         <ArrowLeft className="w-5 h-5" />

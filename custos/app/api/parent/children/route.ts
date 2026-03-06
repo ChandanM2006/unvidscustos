@@ -41,23 +41,18 @@ export async function GET(request: NextRequest) {
         }
 
         // Get all linked children
-        const { data: links } = await supabase
+        const { data: links, error: linksError } = await supabase
             .from('parent_student_links')
             .select('student_id')
             .eq('parent_id', parentId)
 
+        console.log('[Parent API] parentId:', parentId)
+        console.log('[Parent API] links found:', links?.length || 0, links)
+        if (linksError) console.error('[Parent API] links error:', linksError)
+
         let childIds: string[] = []
         if (links && links.length > 0) {
             childIds = links.map(l => l.student_id)
-        } else {
-            // Demo mode: show first 2 students from school
-            const { data: students } = await supabase
-                .from('users')
-                .select('user_id')
-                .eq('school_id', parentUser.school_id)
-                .eq('role', 'student')
-                .limit(2)
-            if (students) childIds = students.map(s => s.user_id)
         }
 
         if (childIds.length === 0) {
@@ -151,11 +146,31 @@ export async function GET(request: NextRequest) {
                     earned_at: a.earned_at,
                 }))
 
+                // Look up the class teacher for this child's class
+                let classTeacherId = null, classTeacherName = null
+                if (student.class_id) {
+                    const { data: ct } = await supabase
+                        .from('users')
+                        .select('user_id, full_name')
+                        .eq('role', 'teacher')
+                        .eq('class_id', student.class_id)
+                        .eq('school_id', parentUser.school_id)
+                        .limit(1)
+
+                    if (ct && ct.length > 0) {
+                        classTeacherId = ct[0].user_id
+                        classTeacherName = ct[0].full_name
+                    }
+                }
+
                 return {
                     student_id: childId,
                     full_name: student.full_name || 'Student',
+                    class_id: student.class_id || null,
                     class_name: className,
                     section_name: sectionName,
+                    class_teacher_id: classTeacherId,
+                    class_teacher_name: classTeacherName,
                     today_status: todayStatus,
                     today_completed: todayCompleted,
                     today_total: todayTotal,

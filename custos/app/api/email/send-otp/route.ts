@@ -44,7 +44,7 @@ export async function POST(req: NextRequest) {
             })
             .eq('invite_id', inviteId)
 
-        // Send email
+        // Try to send email
         const result = await sendOTPEmail({
             to: invite.email,
             userName: invite.full_name,
@@ -53,12 +53,28 @@ export async function POST(req: NextRequest) {
 
         if (!result.success) {
             console.error('OTP email send failed:', result.error)
-            return NextResponse.json({ error: 'Failed to send OTP email' }, { status: 500 })
+            // In development, log the OTP so the flow isn't blocked
+            console.log(`\n📧 OTP EMAIL FAILED — Fallback for development:`)
+            console.log(`   Email: ${invite.email}`)
+            console.log(`   OTP Code: ${otpCode}`)
+            console.log(`   Expires: ${expiresAt}\n`)
+
+            // Still return success — OTP is saved in DB, user can use it
+            // This prevents blocking the registration flow when email service is down
+            return NextResponse.json({
+                success: true,
+                message: 'OTP generated (email delivery failed — check server console for code)',
+                emailSent: false,
+                expiresAt,
+                // Only include OTP in development for testing
+                ...(process.env.NODE_ENV === 'development' ? { devOtp: otpCode } : {})
+            })
         }
 
         return NextResponse.json({
             success: true,
             message: 'OTP sent successfully',
+            emailSent: true,
             expiresAt
         })
 

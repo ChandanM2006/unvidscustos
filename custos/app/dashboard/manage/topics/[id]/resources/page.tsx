@@ -1,7 +1,8 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { useRouter, useParams } from 'next/navigation'
+import { useParams } from 'next/navigation'
+import { useSmartBack } from '@/lib/navigation'
 import { supabase } from '@/lib/supabase'
 import {
     ArrowLeft, BookOpen, FileText, ClipboardList, Brain,
@@ -43,7 +44,7 @@ const RESOURCE_TYPES = [
 ]
 
 export default function TopicResourcesPage() {
-    const router = useRouter()
+    const { goBack } = useSmartBack('/dashboard/manage/topics')
     const params = useParams()
     const topicId = params.id as string
 
@@ -207,7 +208,7 @@ export default function TopicResourcesPage() {
             <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-purple-50 via-blue-50 to-indigo-50">
                 <div className="text-center">
                     <h2 className="text-2xl font-bold text-gray-900 mb-2">Topic Not Found</h2>
-                    <button onClick={() => router.back()} className="text-purple-600 underline">Go Back</button>
+                    <button onClick={goBack} className="text-purple-600 underline">Go Back</button>
                 </div>
             </div>
         )
@@ -219,7 +220,7 @@ export default function TopicResourcesPage() {
                 {/* Header */}
                 <div className="flex items-center gap-4 mb-8">
                     <button
-                        onClick={() => router.back()}
+                        onClick={goBack}
                         className="p-2 hover:bg-white rounded-lg transition-colors"
                     >
                         <ArrowLeft className="w-6 h-6 text-gray-600" />
@@ -247,8 +248,8 @@ export default function TopicResourcesPage() {
                                 <div
                                     key={type.id}
                                     className={`p-4 rounded-xl border-2 transition-all cursor-pointer ${isActive
-                                            ? 'border-purple-500 shadow-lg'
-                                            : 'border-gray-200 hover:border-purple-200'
+                                        ? 'border-purple-500 shadow-lg'
+                                        : 'border-gray-200 hover:border-purple-200'
                                         } ${getColorClasses(type.color)} bg-opacity-50`}
                                     onClick={() => exists ? viewResource(type.id) : null}
                                 >

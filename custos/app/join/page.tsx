@@ -103,7 +103,14 @@ function JoinPageInner() {
                 throw new Error(data.error || 'Failed to send OTP')
             }
 
-            alert(`✅ Verification code sent to ${invitation.email}!\n\nPlease check your email inbox (and spam folder).`)
+            if (data.emailSent) {
+                alert(`✅ Verification code sent to ${invitation.email}!\n\nPlease check your email inbox (and spam folder).`)
+            } else if (data.devOtp) {
+                // Development fallback — email service didn't deliver
+                alert(`⚠️ Email service unavailable.\n\nDev OTP Code: ${data.devOtp}\n\nUse this code to continue.`)
+            } else {
+                alert(`⚠️ Email delivery may have failed.\n\nThe verification code has been generated. Please check your email or try the [Demo] Skip button below.`)
+            }
             setOtpSent(true)
         } catch (err: any) {
             console.error('Error sending OTP:', err)
@@ -180,7 +187,7 @@ function JoinPageInner() {
 
         setCreating(true)
         try {
-            // Create user via API
+            // Create user via API — passes student_id so link is created server-side (bypasses RLS)
             const response = await fetch('/api/users/create', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -191,14 +198,16 @@ function JoinPageInner() {
                     role: invitation.role,
                     school_id: invitation.school_id,
                     class_id: invitation.metadata?.class_id || null,
-                    section_id: invitation.metadata?.section_id || null
+                    section_id: invitation.metadata?.section_id || null,
+                    // For parents: pass the student's user_id directly from metadata
+                    student_id: invitation.metadata?.student_id || null
                 })
             })
 
             const data = await response.json()
             if (!response.ok) throw new Error(data.error)
 
-            // Update invitation
+            // Update invitation status
             await supabase
                 .from('user_invitations')
                 .update({
@@ -207,24 +216,6 @@ function JoinPageInner() {
                     registered_at: new Date().toISOString()
                 })
                 .eq('invite_id', invitation.invite_id)
-
-            // If this is a parent with student link
-            if (invitation.role === 'parent' && invitation.metadata?.student_invite_id) {
-                // Find the student's user_id from their invitation
-                const { data: studentInvite } = await supabase
-                    .from('user_invitations')
-                    .select('user_id')
-                    .eq('invite_id', invitation.metadata.student_invite_id)
-                    .single()
-
-                if (studentInvite?.user_id) {
-                    await supabase.from('parent_student_links').insert({
-                        parent_id: data.user.id,
-                        student_id: studentInvite.user_id,
-                        relationship: 'parent'
-                    })
-                }
-            }
 
             // Send welcome email
             try {

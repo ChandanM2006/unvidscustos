@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { supabase, type User } from '@/lib/supabase'
-import { useRouter } from 'next/navigation'
+import { useSmartBack } from '@/lib/navigation'
 import {
     Target, ArrowLeft, Loader2, CheckCircle, XCircle, Timer
 } from 'lucide-react'
@@ -19,7 +19,7 @@ interface MCQ {
 }
 
 export default function StudentMCQPage() {
-    const router = useRouter()
+    const { goBack, router } = useSmartBack('/dashboard/student')
     const [user, setUser] = useState<User | null>(null)
     const [loading, setLoading] = useState(true)
     const [mcqs, setMcqs] = useState<MCQ[]>([])
@@ -116,7 +116,7 @@ export default function StudentMCQPage() {
             <header className="bg-white/5 backdrop-blur-lg border-b border-white/10 px-6 py-4">
                 <div className="max-w-3xl mx-auto flex items-center gap-4">
                     <button
-                        onClick={() => router.push('/dashboard/student')}
+                        onClick={goBack}
                         className="p-2 hover:bg-white/10 rounded-lg transition-colors"
                     >
                         <ArrowLeft className="w-5 h-5 text-green-300" />
@@ -153,7 +153,7 @@ export default function StudentMCQPage() {
                             {score >= mcqs.length * 0.8 ? 'Excellent work!' : score >= mcqs.length * 0.5 ? 'Good job, keep practicing!' : 'Keep studying, you can do better!'}
                         </p>
                         <button
-                            onClick={() => router.push('/dashboard/student')}
+                            onClick={goBack}
                             className="px-6 py-3 bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-xl font-medium hover:opacity-90"
                         >
                             Back to Dashboard

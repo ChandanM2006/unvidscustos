@@ -1,7 +1,8 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef, Suspense } from 'react'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { useSearchParams } from 'next/navigation'
+import { useSmartBack } from '@/lib/navigation'
 import { supabase } from '@/lib/supabase'
 import {
     Brain, ChevronRight, ChevronLeft, CheckCircle, XCircle,
@@ -103,7 +104,7 @@ const vibrate = (pattern: number | number[]) => {
 }
 
 function PracticePageInner() {
-    const router = useRouter()
+    const { goBack, router } = useSmartBack('/dashboard/student')
     const searchParams = useSearchParams()
     const testType = searchParams.get('type') || 'daily'
     const config = TEST_CONFIG[testType] || TEST_CONFIG.daily
@@ -188,7 +189,7 @@ function PracticePageInner() {
                 .single()
 
             if (!user || user.role !== 'student') {
-                router.push('/dashboard')
+                router.replace('/dashboard/redirect')
                 return
             }
 
@@ -508,7 +509,7 @@ function PracticePageInner() {
                         }
                     </p>
                     <button
-                        onClick={() => router.push('/dashboard/student')}
+                        onClick={goBack}
                         className="px-6 py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-semibold transition-colors"
                     >
                         Back to Dashboard
@@ -544,7 +545,7 @@ function PracticePageInner() {
                         </div>
                     </div>
                     <button
-                        onClick={() => router.push('/dashboard/student')}
+                        onClick={goBack}
                         className="px-6 py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-semibold transition-colors"
                     >
                         Back to Dashboard
@@ -561,7 +562,7 @@ function PracticePageInner() {
                 {/* Header */}
                 <header className="p-4">
                     <button
-                        onClick={() => router.push('/dashboard/student')}
+                        onClick={goBack}
                         className="flex items-center gap-2 text-purple-300 hover:text-white transition-colors"
                     >
                         <ArrowLeft className="w-5 h-5" />
@@ -899,7 +900,7 @@ function PracticePageInner() {
                         ? `${config.title} complete! +${config.points} activity points earned.`
                         : undefined
                     }
-                    onBack={() => router.push('/dashboard/student')}
+                    onBack={goBack}
                 />
             </div>
         )

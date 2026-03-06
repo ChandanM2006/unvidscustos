@@ -72,16 +72,11 @@ export async function POST(request: NextRequest) {
 // ── AI Generation (if API key available) ──────────
 
 async function tryAIGeneration(topics: TopicInput[], constraints: Constraints) {
-    const apiKey = process.env.ANTHROPIC_API_KEY || process.env.OPENAI_API_KEY
+    const apiKey = process.env.OPENAI_API_KEY
     if (!apiKey) return null
 
     try {
-        if (process.env.ANTHROPIC_API_KEY) {
-            return await generateWithAnthropic(topics, constraints, process.env.ANTHROPIC_API_KEY)
-        }
-        if (process.env.OPENAI_API_KEY) {
-            return await generateWithOpenAI(topics, constraints, process.env.OPENAI_API_KEY)
-        }
+        return await generateWithOpenAI(topics, constraints, apiKey)
     } catch (err) {
         console.warn('[Lesson Plan] AI generation failed, using algorithmic fallback:', err)
         return null

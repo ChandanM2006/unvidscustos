@@ -2,8 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
-import { useRouter }
-    from 'next/navigation'
+import { useSmartBack } from '@/lib/navigation'
 import { Calendar, Plus, Edit, Trash2, Check, X, ArrowLeft } from 'lucide-react'
 
 interface AcademicYear {
@@ -17,9 +16,10 @@ interface AcademicYear {
 }
 
 export default function AcademicYearsPage() {
-    const router = useRouter()
+    const { goBack, router } = useSmartBack('/dashboard/manage')
     const [years, setYears] = useState<AcademicYear[]>([])
     const [loading, setLoading] = useState(true)
+    const [currentSchoolId, setCurrentSchoolId] = useState<string | null>(null)
     const [showModal, setShowModal] = useState(false)
     const [editingYear, setEditingYear] = useState<AcademicYear | null>(null)
 
@@ -45,19 +45,22 @@ export default function AcademicYearsPage() {
 
             const { data: userData } = await supabase
                 .from('users')
-                .select('role')
+                .select('role, school_id')
                 .eq('email', session.user.email)
                 .single()
 
             if (!userData || !['super_admin', 'sub_admin'].includes(userData.role)) {
                 alert('Only administrators can access this page.')
-                router.push('/dashboard')
+                router.replace('/dashboard/redirect')
                 return
             }
+
+            setCurrentSchoolId(userData.school_id)
 
             const { data, error } = await supabase
                 .from('academic_years')
                 .select('*')
+                .eq('school_id', userData.school_id)
                 .order('start_date', { ascending: false })
 
             if (error) throw error
@@ -111,7 +114,7 @@ export default function AcademicYearsPage() {
             } else {
                 const { error } = await supabase
                     .from('academic_years')
-                    .insert([formData])
+                    .insert([{ ...formData, school_id: currentSchoolId }])
 
                 if (error) throw error
                 alert('Academic year created successfully!')
@@ -147,11 +150,11 @@ export default function AcademicYearsPage() {
 
     async function setActiveYear(id: string) {
         try {
-            // Deactivate all years
+            // Deactivate all years for THIS school only
             await supabase
                 .from('academic_years')
                 .update({ is_current: false })
-                .neq('year_id', '')
+                .eq('school_id', currentSchoolId)
 
             // Activate selected year
             const { error } = await supabase
@@ -185,7 +188,7 @@ export default function AcademicYearsPage() {
                 <div className="flex items-center justify-between mb-8">
                     <div className="flex items-center gap-4">
                         <button
-                            onClick={() => router.push('/dashboard/manage')}
+                            onClick={goBack}
                             className="p-2 hover:bg-white rounded-lg transition-colors"
                         >
                             <ArrowLeft className="w-6 h-6 text-gray-600" />

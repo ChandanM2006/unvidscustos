@@ -184,7 +184,7 @@ export default function StudentProgressDashboard() {
                 <div className="flex items-center justify-between mb-8">
                     <div className="flex items-center gap-4">
                         <button
-                            onClick={() => router.push('/dashboard')}
+                            onClick={() => router.back()}
                             className="p-2 hover:bg-white rounded-lg transition-colors"
                         >
                             <ArrowLeft className="w-6 h-6 text-gray-600" />
@@ -301,8 +301,8 @@ export default function StudentProgressDashboard() {
                         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                             {/* First Quiz Badge */}
                             <div className={`p-4 rounded-xl text-center border-2 ${(progress?.total_attempts || 0) >= 1
-                                    ? 'border-yellow-400 bg-yellow-50'
-                                    : 'border-gray-200 bg-gray-50 opacity-50'
+                                ? 'border-yellow-400 bg-yellow-50'
+                                : 'border-gray-200 bg-gray-50 opacity-50'
                                 }`}>
                                 <div className="text-4xl mb-2">🎯</div>
                                 <p className="font-semibold text-sm">First Quiz</p>
@@ -311,8 +311,8 @@ export default function StudentProgressDashboard() {
 
                             {/* 5 Quiz Badge */}
                             <div className={`p-4 rounded-xl text-center border-2 ${(progress?.total_attempts || 0) >= 5
-                                    ? 'border-blue-400 bg-blue-50'
-                                    : 'border-gray-200 bg-gray-50 opacity-50'
+                                ? 'border-blue-400 bg-blue-50'
+                                : 'border-gray-200 bg-gray-50 opacity-50'
                                 }`}>
                                 <div className="text-4xl mb-2">🌟</div>
                                 <p className="font-semibold text-sm">Quiz Enthusiast</p>
@@ -321,8 +321,8 @@ export default function StudentProgressDashboard() {
 
                             {/* Perfect Score Badge */}
                             <div className={`p-4 rounded-xl text-center border-2 ${recentAttempts.some(a => a.percentage === 100)
-                                    ? 'border-green-400 bg-green-50'
-                                    : 'border-gray-200 bg-gray-50 opacity-50'
+                                ? 'border-green-400 bg-green-50'
+                                : 'border-gray-200 bg-gray-50 opacity-50'
                                 }`}>
                                 <div className="text-4xl mb-2">💯</div>
                                 <p className="font-semibold text-sm">Perfect!</p>
@@ -331,8 +331,8 @@ export default function StudentProgressDashboard() {
 
                             {/* Streak Badge */}
                             <div className={`p-4 rounded-xl text-center border-2 ${(progress?.streak_days || 0) >= 3
-                                    ? 'border-orange-400 bg-orange-50'
-                                    : 'border-gray-200 bg-gray-50 opacity-50'
+                                ? 'border-orange-400 bg-orange-50'
+                                : 'border-gray-200 bg-gray-50 opacity-50'
                                 }`}>
                                 <div className="text-4xl mb-2">🔥</div>
                                 <p className="font-semibold text-sm">On Fire!</p>

@@ -59,7 +59,7 @@ export interface TopicActivity {
 export async function getTopicActivityBreakdown(studentId: string): Promise<TopicActivity[]> {
     const { data } = await supabase
         .from('student_topic_performance')
-        .select('*, lesson_topics(topic_name)')
+        .select('*, lesson_topics(topic_title)')
         .eq('student_id', studentId)
 
     if (!data || data.length === 0) return []
@@ -73,7 +73,7 @@ export async function getTopicActivityBreakdown(studentId: string): Promise<Topi
 
         return {
             topic_id: perf.topic_id,
-            topic_name: perf.lesson_topics?.topic_name || 'Unknown Topic',
+            topic_name: perf.lesson_topics?.topic_title || 'Unknown Topic',
             activity_percentage: activityPercentage,
             last_practiced: perf.last_assessed_at,
             total_attempts: perf.total_attempts || 0,

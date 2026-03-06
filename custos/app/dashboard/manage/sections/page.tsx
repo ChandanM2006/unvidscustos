@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
-import { useRouter } from 'next/navigation'
+import { useSmartBack } from '@/lib/navigation'
 import { ArrowLeft, Plus, Pencil, Trash2 } from 'lucide-react'
 
 interface Class {
@@ -20,7 +20,7 @@ interface Section {
 }
 
 export default function SectionsPage() {
-    const router = useRouter()
+    const { goBack, router } = useSmartBack('/dashboard/manage')
     const [sections, setSections] = useState<Section[]>([])
     const [classes, setClasses] = useState<Class[]>([])
     const [loading, setLoading] = useState(true)
@@ -54,7 +54,7 @@ export default function SectionsPage() {
             // Only admins can access this page
             if (!userData || !['super_admin', 'sub_admin'].includes(userData.role)) {
                 alert('Only administrators can access this page.')
-                router.push('/dashboard')
+                router.replace('/dashboard/redirect')
                 return
             }
 
@@ -68,20 +68,27 @@ export default function SectionsPage() {
 
                 if (classesData) setClasses(classesData)
 
-                // Load sections with class info
-                const { data: sectionsData } = await supabase
-                    .from('sections')
-                    .select(`
-            *,
-            classes (
-              class_id,
-              name,
-              grade_level
-            )
-          `)
-                    .order('created_at', { ascending: false })
+                // Load sections filtered to this school's classes only
+                const classIds = (classesData || []).map((c: Class) => c.class_id)
 
-                if (sectionsData) setSections(sectionsData as Section[])
+                if (classIds.length > 0) {
+                    const { data: sectionsData } = await supabase
+                        .from('sections')
+                        .select(`
+                            *,
+                            classes (
+                                class_id,
+                                name,
+                                grade_level
+                            )
+                        `)
+                        .in('class_id', classIds)
+                        .order('created_at', { ascending: false })
+
+                    if (sectionsData) setSections(sectionsData as Section[])
+                } else {
+                    setSections([])
+                }
             }
         } catch (error) {
             console.error('Error loading data:', error)
@@ -105,7 +112,11 @@ export default function SectionsPage() {
                     })
                     .eq('section_id', editingSection.section_id)
 
-                if (error) throw error
+                if (error) {
+                    console.error('Supabase update error:', error.message, error.details, error.hint, error.code)
+                    alert('Failed to update section: ' + error.message)
+                    return
+                }
                 alert('Section updated successfully!')
             } else {
                 // Create new section
@@ -116,7 +127,11 @@ export default function SectionsPage() {
                         name: formData.name
                     })
 
-                if (error) throw error
+                if (error) {
+                    console.error('Supabase insert error:', error.message, error.details, error.hint, error.code)
+                    alert('Failed to create section: ' + error.message)
+                    return
+                }
                 alert('Section created successfully!')
             }
 
@@ -125,8 +140,8 @@ export default function SectionsPage() {
             setFormData({ name: '', class_id: '' })
             loadData()
         } catch (error: any) {
-            console.error('Error saving section:', error)
-            alert('Failed to save section: ' + error.message)
+            console.error('Error saving section:', error?.message || error)
+            alert('Failed to save section: ' + (error?.message || 'Unknown error'))
         } finally {
             setLoading(false)
         }
@@ -182,7 +197,7 @@ export default function SectionsPage() {
                 <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                     <div className="flex items-center justify-between h-16">
                         <button
-                            onClick={() => router.push('/dashboard/manage')}
+                            onClick={goBack}
                             className="flex items-center space-x-2 text-gray-600 hover:text-gray-900 transition-colors"
                         >
                             <ArrowLeft className="w-5 h-5" />

@@ -429,9 +429,11 @@ CREATE POLICY "sd_select"
   USING (
     student_id = auth.uid()
     OR EXISTS (
-      SELECT 1 FROM users
-      WHERE users.user_id = auth.uid()
-      AND users.role IN ('super_admin', 'sub_admin', 'teacher')
+      SELECT 1 FROM users viewer
+      JOIN users student ON student.user_id = student_doubts.student_id
+      WHERE viewer.user_id = auth.uid()
+      AND viewer.role IN ('super_admin', 'sub_admin', 'teacher')
+      AND (viewer.role = 'super_admin' OR viewer.school_id = student.school_id)
     )
   );
 
@@ -453,9 +455,11 @@ CREATE POLICY "sd_update"
   USING (
     student_id = auth.uid()
     OR EXISTS (
-      SELECT 1 FROM users
-      WHERE users.user_id = auth.uid()
-      AND users.role IN ('super_admin', 'sub_admin', 'teacher')
+      SELECT 1 FROM users viewer
+      JOIN users student ON student.user_id = student_doubts.student_id
+      WHERE viewer.user_id = auth.uid()
+      AND viewer.role IN ('super_admin', 'sub_admin', 'teacher')
+      AND (viewer.role = 'super_admin' OR viewer.school_id = student.school_id)
     )
   );
 

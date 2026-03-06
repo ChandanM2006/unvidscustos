@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
+import { useSmartBack } from '@/lib/navigation'
 import { supabase } from '@/lib/supabase'
 import {
     ArrowLeft, Calendar, Users, CheckCircle, XCircle,
@@ -34,7 +34,7 @@ interface Section {
 }
 
 export default function AttendancePage() {
-    const router = useRouter()
+    const { goBack, router } = useSmartBack('/dashboard/manage')
 
     const [loading, setLoading] = useState(true)
     const [saving, setSaving] = useState(false)
@@ -54,8 +54,34 @@ export default function AttendancePage() {
     const [stats, setStats] = useState({ total: 0, present: 0, absent: 0, late: 0 })
 
     useEffect(() => {
-        loadClasses()
+        initAndLoadClasses()
     }, [])
+
+    async function initAndLoadClasses() {
+        try {
+            const { data: { session } } = await supabase.auth.getSession()
+            if (!session) return
+
+            const { data: userData } = await supabase
+                .from('users')
+                .select('school_id')
+                .eq('email', session.user.email)
+                .single()
+
+            if (!userData?.school_id) return
+
+            const { data } = await supabase
+                .from('classes')
+                .select('*')
+                .eq('school_id', userData.school_id)
+                .order('grade_level', { ascending: true })
+            setClasses(data || [])
+        } catch (error) {
+            console.error('Error loading classes:', error)
+        } finally {
+            setLoading(false)
+        }
+    }
 
     useEffect(() => {
         if (selectedClassId) {
@@ -77,20 +103,6 @@ export default function AttendancePage() {
         const late = records.filter(r => r.status === 'late').length
         setStats({ total: students.length, present, absent, late })
     }, [attendance, students])
-
-    async function loadClasses() {
-        try {
-            const { data } = await supabase
-                .from('classes')
-                .select('*')
-                .order('grade_level', { ascending: true })
-            setClasses(data || [])
-        } catch (error) {
-            console.error('Error loading classes:', error)
-        } finally {
-            setLoading(false)
-        }
-    }
 
     async function loadSections() {
         try {
@@ -248,7 +260,7 @@ export default function AttendancePage() {
                 <div className="flex items-center justify-between mb-8">
                     <div className="flex items-center gap-4">
                         <button
-                            onClick={() => router.push('/dashboard/manage')}
+                            onClick={goBack}
                             className="p-2 hover:bg-white rounded-lg transition-colors"
                         >
                             <ArrowLeft className="w-6 h-6 text-gray-600" />

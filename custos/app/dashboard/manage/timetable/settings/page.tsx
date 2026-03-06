@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
+import { useSmartBack } from '@/lib/navigation'
 import { supabase } from '@/lib/supabase'
 import {
     ArrowLeft, Clock, Plus, Trash2, Save, Loader2,
@@ -18,7 +18,7 @@ interface TimeSlot {
 }
 
 export default function TimeSlotSettingsPage() {
-    const router = useRouter()
+    const { goBack, router } = useSmartBack('/dashboard/manage/timetable')
     const [loading, setLoading] = useState(true)
     const [saving, setSaving] = useState(false)
     const [schoolId, setSchoolId] = useState<string | null>(null)
@@ -45,7 +45,7 @@ export default function TimeSlotSettingsPage() {
 
             if (!userData || !['super_admin', 'sub_admin'].includes(userData.role)) {
                 alert('Only admins can access this page')
-                router.push('/dashboard')
+                router.replace('/dashboard/redirect')
                 return
             }
 
@@ -227,7 +227,7 @@ export default function TimeSlotSettingsPage() {
             <header className="bg-white/5 backdrop-blur-lg border-b border-white/10 px-6 py-4">
                 <div className="max-w-4xl mx-auto flex items-center justify-between">
                     <div className="flex items-center gap-4">
-                        <button onClick={() => router.push('/dashboard/manage/timetable')} className="p-2 hover:bg-white/10 rounded-lg">
+                        <button onClick={goBack} className="p-2 hover:bg-white/10 rounded-lg">
                             <ArrowLeft className="w-5 h-5 text-orange-300" />
                         </button>
                         <div>
@@ -324,8 +324,8 @@ export default function TimeSlotSettingsPage() {
                                 <button
                                     onClick={() => updateSlot(index, 'is_break', !slot.is_break)}
                                     className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${slot.is_break
-                                            ? 'bg-yellow-500/30 text-yellow-300 border border-yellow-500/50'
-                                            : 'bg-white/10 text-white/70 hover:bg-white/20'
+                                        ? 'bg-yellow-500/30 text-yellow-300 border border-yellow-500/50'
+                                        : 'bg-white/10 text-white/70 hover:bg-white/20'
                                         }`}
                                 >
                                     {slot.is_break ? '☕ Break' : 'Period'}

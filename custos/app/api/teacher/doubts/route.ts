@@ -52,8 +52,10 @@ export async function GET(request: NextRequest) {
                 status,
                 flagged_for_teacher,
                 created_at,
-                lesson_topics(topic_name)
+                lesson_topics(topic_name),
+                users!student_id!inner(school_id)
             `)
+            .eq('users.school_id', teacher.school_id)
             .eq('flagged_for_teacher', true)
             .is('teacher_response', null)
             .order('created_at', { ascending: false })

@@ -2,7 +2,8 @@
 
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
-import { useRouter, useParams } from 'next/navigation'
+import { useParams } from 'next/navigation'
+import { useSmartBack } from '@/lib/navigation'
 import { ArrowLeft, Plus, Edit, Trash2, BookOpen, Clock, Target, TrendingUp } from 'lucide-react'
 
 interface Topic {
@@ -17,9 +18,9 @@ interface Topic {
 }
 
 export default function TopicBreakdownPage() {
-    const router = useRouter()
     const params = useParams()
     const documentId = params?.id as string
+    const { goBack, router } = useSmartBack(`/dashboard/manage/syllabus/${documentId}`)
 
     const [topics, setTopics] = useState<Topic[]>([])
     const [loading, setLoading] = useState(true)
@@ -203,7 +204,7 @@ export default function TopicBreakdownPage() {
                 <div className="flex items-center justify-between mb-8">
                     <div className="flex items-center gap-4">
                         <button
-                            onClick={() => router.push(`/dashboard/manage/syllabus/${documentId}`)}
+                            onClick={goBack}
                             className="p-2 hover:bg-white rounded-lg transition-colors"
                         >
                             <ArrowLeft className="w-6 h-6 text-gray-600" />

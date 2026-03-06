@@ -1,10 +1,10 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
+import { useSmartBack } from '@/lib/navigation'
 import { supabase } from '@/lib/supabase'
 import {
-    ArrowLeft, Clock, Calendar, Loader2
+    ArrowLeft, Clock, Calendar, Loader2, AlertTriangle
 } from 'lucide-react'
 
 interface TimeSlot {
@@ -29,11 +29,12 @@ const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 
 const SCHOOL_DAYS = [1, 2, 3, 4, 5, 6] // Mon-Sat
 
 export default function TeacherTimetablePage() {
-    const router = useRouter()
+    const { goBack, router } = useSmartBack('/dashboard/teacher')
     const [loading, setLoading] = useState(true)
     const [slots, setSlots] = useState<TimeSlot[]>([])
     const [entries, setEntries] = useState<TimetableEntry[]>([])
     const [teacherName, setTeacherName] = useState('')
+    const [conflictSlots, setConflictSlots] = useState<Set<string>>(new Set())
 
     useEffect(() => {
         loadData()
@@ -82,7 +83,20 @@ export default function TeacherTimetablePage() {
                 `)
                 .eq('teacher_id', userData.user_id)
 
-            setEntries((entryData as any) || [])
+            const allEntries = (entryData as any) || []
+            setEntries(allEntries)
+
+            // Detect conflicts: same day+slot with multiple entries
+            const slotCounts = new Map<string, number>()
+            const conflicting = new Set<string>()
+            for (const e of allEntries) {
+                const key = `${e.day_of_week}_${e.slot_id}`
+                slotCounts.set(key, (slotCounts.get(key) || 0) + 1)
+            }
+            for (const [key, count] of slotCounts) {
+                if (count > 1) conflicting.add(key)
+            }
+            setConflictSlots(conflicting)
 
         } catch (error) {
             console.error('Error:', error)
@@ -118,7 +132,7 @@ export default function TeacherTimetablePage() {
             <header className="bg-white/5 backdrop-blur-lg border-b border-white/10 px-6 py-4">
                 <div className="max-w-7xl mx-auto flex items-center justify-between">
                     <div className="flex items-center gap-4">
-                        <button onClick={() => router.push('/dashboard/teacher')} className="p-2 hover:bg-white/10 rounded-lg">
+                        <button onClick={goBack} className="p-2 hover:bg-white/10 rounded-lg">
                             <ArrowLeft className="w-5 h-5 text-blue-300" />
                         </button>
                         <div>
@@ -137,6 +151,21 @@ export default function TeacherTimetablePage() {
             </header>
 
             <main className="max-w-7xl mx-auto p-6">
+                {/* Conflict warning */}
+                {conflictSlots.size > 0 && (
+                    <div className="bg-red-500/20 border border-red-400/40 rounded-xl p-4 mb-6 flex items-center gap-3">
+                        <AlertTriangle className="w-6 h-6 text-red-400 shrink-0" />
+                        <div>
+                            <p className="font-bold text-red-200">
+                                ⚠️ Schedule Conflict Detected
+                            </p>
+                            <p className="text-sm text-red-300/80">
+                                You are assigned to {conflictSlots.size} overlapping time slot{conflictSlots.size > 1 ? 's' : ''} (highlighted in red below). Please contact your admin to fix this.
+                            </p>
+                        </div>
+                    </div>
+                )}
+
                 {slots.length === 0 ? (
                     <div className="bg-white/10 backdrop-blur-lg rounded-2xl border border-white/10 p-12 text-center">
                         <Clock className="w-16 h-16 mx-auto mb-4 text-blue-300/50" />
@@ -171,6 +200,7 @@ export default function TeacherTimetablePage() {
                                             </td>
                                             {SCHOOL_DAYS.map(day => {
                                                 const entry = getEntry(day, slot.slot_id)
+                                                const hasConflict = conflictSlots.has(`${day}_${slot.slot_id}`)
 
                                                 if (slot.is_break) {
                                                     return (
@@ -183,13 +213,21 @@ export default function TeacherTimetablePage() {
                                                 return (
                                                     <td key={day} className="p-2 border-r border-white/10">
                                                         {entry ? (
-                                                            <div className="p-2 rounded-lg bg-gradient-to-br from-blue-500/30 to-indigo-500/30 border border-blue-400/30">
-                                                                <div className="text-sm font-semibold text-white">
+                                                            <div className={`p-2 rounded-lg relative ${hasConflict
+                                                                ? 'bg-gradient-to-br from-red-500/30 to-red-600/30 border-2 border-red-400/60 ring-1 ring-red-400/30'
+                                                                : 'bg-gradient-to-br from-blue-500/30 to-indigo-500/30 border border-blue-400/30'
+                                                                }`}>
+                                                                <div className={`text-sm font-semibold ${hasConflict ? 'text-red-200' : 'text-white'}`}>
                                                                     {entry.subjects?.name || 'Subject'}
                                                                 </div>
-                                                                <div className="text-xs text-blue-300">
+                                                                <div className={`text-xs ${hasConflict ? 'text-red-300' : 'text-blue-300'}`}>
                                                                     {entry.classes?.name}{entry.sections?.name ? ` - ${entry.sections.name}` : ''}
                                                                 </div>
+                                                                {hasConflict && (
+                                                                    <div className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-red-500 rounded-full flex items-center justify-center" title="Schedule conflict — contact admin">
+                                                                        <AlertTriangle className="w-3 h-3 text-white" />
+                                                                    </div>
+                                                                )}
                                                             </div>
                                                         ) : (
                                                             <div className="p-2 text-center text-white/30 text-xs">
@@ -208,7 +246,7 @@ export default function TeacherTimetablePage() {
                 )}
 
                 {/* Legend */}
-                <div className="mt-6 flex items-center gap-6 justify-center">
+                <div className="mt-6 flex items-center gap-6 justify-center flex-wrap">
                     <div className="flex items-center gap-2">
                         <div className="w-4 h-4 rounded bg-gradient-to-r from-blue-500/30 to-indigo-500/30 border border-blue-400/30"></div>
                         <span className="text-sm text-blue-300/70">Your Class</span>
@@ -221,6 +259,12 @@ export default function TeacherTimetablePage() {
                         <div className="w-4 h-4 rounded bg-white/5"></div>
                         <span className="text-sm text-blue-300/70">Free Period</span>
                     </div>
+                    {conflictSlots.size > 0 && (
+                        <div className="flex items-center gap-2">
+                            <div className="w-4 h-4 rounded bg-red-500/30 border-2 border-red-400/60"></div>
+                            <span className="text-sm text-red-300/70">Conflict — contact admin</span>
+                        </div>
+                    )}
                 </div>
             </main>
         </div>

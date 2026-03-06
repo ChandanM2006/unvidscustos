@@ -1,7 +1,8 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { useRouter, useParams } from 'next/navigation'
+import { useParams } from 'next/navigation'
+import { useSmartBack } from '@/lib/navigation'
 import { supabase } from '@/lib/supabase'
 import {
     ArrowLeft, BookOpen, FileText, Brain, ClipboardList,
@@ -26,7 +27,7 @@ const RESOURCE_TYPES = [
 ]
 
 export default function ResourceViewPage() {
-    const router = useRouter()
+    const { goBack } = useSmartBack('/dashboard')
     const params = useParams()
     const topicId = params.topicId as string
 
@@ -128,7 +129,7 @@ export default function ResourceViewPage() {
             {/* Header */}
             <header className="bg-white border-b shadow-sm sticky top-0 z-10">
                 <div className="max-w-5xl mx-auto px-6 py-4 flex items-center gap-4">
-                    <button onClick={() => router.back()} className="p-2 hover:bg-gray-100 rounded-lg">
+                    <button onClick={goBack} className="p-2 hover:bg-gray-100 rounded-lg">
                         <ArrowLeft className="w-5 h-5 text-gray-600" />
                     </button>
                     <div>
@@ -156,10 +157,10 @@ export default function ResourceViewPage() {
                                     onClick={() => available && selectResource(type.id)}
                                     disabled={!available}
                                     className={`w-full p-3 rounded-xl flex items-center gap-3 transition-all ${isActive
-                                            ? 'bg-teal-600 text-white shadow-lg'
-                                            : available
-                                                ? 'bg-white text-gray-700 hover:bg-gray-50'
-                                                : 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                                        ? 'bg-teal-600 text-white shadow-lg'
+                                        : available
+                                            ? 'bg-white text-gray-700 hover:bg-gray-50'
+                                            : 'bg-gray-100 text-gray-400 cursor-not-allowed'
                                         }`}
                                 >
                                     <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${isActive ? 'bg-white/20' : getColorClasses(type.color, available)

@@ -7,7 +7,8 @@ import { NotificationBell } from '@/components/NotificationBell'
 import {
     BookOpen, Clock, Calendar, FileText, Brain, CheckCircle,
     Bell, ChevronRight, Loader2, GraduationCap, BarChart3, Star,
-    Flame, Zap, Trophy, Target, MessageCircle
+    Flame, Zap, Trophy, Target, MessageCircle, LogOut, ClipboardList,
+    Newspaper
 } from 'lucide-react'
 
 interface TodayClass {
@@ -27,6 +28,8 @@ export default function StudentDashboard() {
     const [attendancePercent, setAttendancePercent] = useState(0)
     const [className, setClassName] = useState('')
     const [brainData, setBrainData] = useState<any>(null)
+    const [lastGrade, setLastGrade] = useState<string>('-')
+    const [dailyWorkCount, setDailyWorkCount] = useState(0)
 
     useEffect(() => {
         const timer = setInterval(() => setCurrentTime(new Date()), 60000)
@@ -129,7 +132,7 @@ export default function StudentDashboard() {
                 }
             }
 
-            // Get attendance summary
+            // Get attendance – try summary first, fallback to records
             const { data: attendanceData } = await supabase
                 .from('attendance_summary')
                 .select('percentage')
@@ -141,7 +144,46 @@ export default function StudentDashboard() {
 
             if (attendanceData) {
                 setAttendancePercent(Math.round(attendanceData.percentage))
+            } else {
+                // Fallback: compute from records
+                const { data: aRecords } = await supabase
+                    .from('attendance_records')
+                    .select('status')
+                    .eq('student_id', userData.user_id)
+                if (aRecords && aRecords.length > 0) {
+                    const present = aRecords.filter(r => ['present', 'late'].includes(r.status)).length
+                    setAttendancePercent(Math.round((present / aRecords.length) * 100))
+                }
             }
+
+            // Fetch last grade from student_marks
+            try {
+                const { data: lastMark } = await supabase
+                    .from('student_marks')
+                    .select('grade, marks_obtained, max_marks')
+                    .eq('student_id', userData.user_id)
+                    .order('entered_at', { ascending: false })
+                    .limit(1)
+                    .single()
+
+                if (lastMark) {
+                    setLastGrade(lastMark.grade || (
+                        lastMark.max_marks > 0
+                            ? (() => {
+                                const pct = (lastMark.marks_obtained / lastMark.max_marks) * 100
+                                if (pct >= 90) return 'A+'
+                                if (pct >= 80) return 'A'
+                                if (pct >= 70) return 'B+'
+                                if (pct >= 60) return 'B'
+                                if (pct >= 50) return 'C+'
+                                if (pct >= 40) return 'C'
+                                if (pct >= 33) return 'D'
+                                return 'F'
+                            })()
+                            : '-'
+                    ))
+                }
+            } catch { }
 
             // Fetch Brain activity data
             try {
@@ -149,6 +191,17 @@ export default function StudentDashboard() {
                 if (brainRes.ok) {
                     const data = await brainRes.json()
                     setBrainData(data)
+                }
+            } catch { }
+
+            // Check for teacher-published daily work
+            try {
+                const today = new Date().toISOString().split('T')[0]
+                const dwRes = await fetch(`/api/brain/work/daily?class_id=${userData.class_id}&date=${today}`)
+                if (dwRes.ok) {
+                    const dwData = await dwRes.json()
+                    const published = (dwData.works || []).filter((w: any) => w.status === 'published' || w.status === 'completed')
+                    setDailyWorkCount(published.length)
                 }
             } catch { }
 
@@ -165,6 +218,11 @@ export default function StudentDashboard() {
         const hour = parseInt(h) % 12 || 12
         const ampm = parseInt(h) >= 12 ? 'PM' : 'AM'
         return `${hour}:${m} ${ampm}`
+    }
+
+    const handleLogout = async () => {
+        await supabase.auth.signOut()
+        router.push('/login')
     }
 
     if (loading) {
@@ -193,7 +251,16 @@ export default function StudentDashboard() {
                             </p>
                         </div>
                     </div>
-                    {student && <NotificationBell userId={student.user_id} />}
+                    <div className="flex items-center gap-2">
+                        {student && <NotificationBell userId={student.user_id} />}
+                        <button
+                            onClick={handleLogout}
+                            className="p-2 hover:bg-red-50 rounded-lg transition-colors group"
+                            title="Logout"
+                        >
+                            <LogOut className="w-5 h-5 text-gray-400 group-hover:text-red-500 transition-colors" />
+                        </button>
+                    </div>
                 </div>
             </header>
 
@@ -218,10 +285,35 @@ export default function StudentDashboard() {
                         <div className="w-12 h-12 bg-yellow-100 rounded-full flex items-center justify-center mx-auto mb-2">
                             <Star className="w-6 h-6 text-yellow-600" />
                         </div>
-                        <p className="text-xl font-bold text-gray-900">A+</p>
+                        <p className="text-xl font-bold text-gray-900">{lastGrade}</p>
                         <p className="text-xs text-gray-500">Last Grade</p>
                     </div>
                 </div>
+
+                {/* 📋 Teacher's Daily Work CTA */}
+                {dailyWorkCount > 0 && (
+                    <button
+                        onClick={() => router.push('/dashboard/student/work/daily')}
+                        className="w-full rounded-2xl p-5 shadow-lg hover:shadow-xl transition-all active:scale-[0.99] text-left bg-gradient-to-r from-orange-500 to-amber-600"
+                    >
+                        <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-4">
+                                <div className="w-14 h-14 bg-white/20 rounded-2xl flex items-center justify-center">
+                                    <ClipboardList className="w-7 h-7 text-white" />
+                                </div>
+                                <div>
+                                    <h3 className="text-lg font-bold text-white">
+                                        Today's Daily Work 📝
+                                    </h3>
+                                    <p className="text-sm text-white/80">
+                                        {dailyWorkCount} assignment{dailyWorkCount > 1 ? 's' : ''} from your teacher • MCQs + Homework
+                                    </p>
+                                </div>
+                            </div>
+                            <ChevronRight className="w-6 h-6 text-white/70" />
+                        </div>
+                    </button>
+                )}
 
                 {/* 🧠 Daily Practice CTA */}
                 <button
@@ -381,7 +473,23 @@ export default function StudentDashboard() {
                 <h3 className="text-lg font-bold text-gray-900">Study Resources</h3>
                 <div className="grid grid-cols-2 gap-4">
                     <button
-                        onClick={() => router.push('/dashboard/resources')}
+                        onClick={() => router.push('/dashboard/calendar')}
+                        className="bg-white rounded-xl p-6 shadow-sm hover:shadow-md transition-shadow text-left"
+                    >
+                        <Calendar className="w-10 h-10 text-indigo-500 mb-3" />
+                        <p className="font-semibold text-gray-900">Calendar</p>
+                        <p className="text-sm text-gray-500">Events & Schedules</p>
+                    </button>
+                    <button
+                        onClick={() => router.push('/dashboard/posts')}
+                        className="bg-white rounded-xl p-6 shadow-sm hover:shadow-md transition-shadow text-left"
+                    >
+                        <Newspaper className="w-10 h-10 text-rose-500 mb-3" />
+                        <p className="font-semibold text-gray-900">Posts</p>
+                        <p className="text-sm text-gray-500">School announcements</p>
+                    </button>
+                    <button
+                        onClick={() => router.push('/dashboard/student/subjects')}
                         className="bg-white rounded-xl p-6 shadow-sm hover:shadow-md transition-shadow text-left"
                     >
                         <BookOpen className="w-10 h-10 text-teal-600 mb-3" />
@@ -397,7 +505,7 @@ export default function StudentDashboard() {
                         <p className="text-sm text-gray-500">Test your knowledge</p>
                     </button>
                     <button
-                        onClick={() => router.push('/dashboard/attendance')}
+                        onClick={() => router.push('/dashboard/student/attendance')}
                         className="bg-white rounded-xl p-6 shadow-sm hover:shadow-md transition-shadow text-left"
                     >
                         <CheckCircle className="w-10 h-10 text-green-600 mb-3" />
@@ -405,12 +513,28 @@ export default function StudentDashboard() {
                         <p className="text-sm text-gray-500">View your record</p>
                     </button>
                     <button
-                        onClick={() => router.push('/dashboard/report-card')}
+                        onClick={() => router.push('/dashboard/student/report-card')}
                         className="bg-white rounded-xl p-6 shadow-sm hover:shadow-md transition-shadow text-left"
                     >
                         <BarChart3 className="w-10 h-10 text-orange-600 mb-3" />
                         <p className="font-semibold text-gray-900">Report Card</p>
                         <p className="text-sm text-gray-500">View your grades</p>
+                    </button>
+                    <button
+                        onClick={() => router.push('/dashboard/student/timetable')}
+                        className="bg-white rounded-xl p-6 shadow-sm hover:shadow-md transition-shadow text-left"
+                    >
+                        <Clock className="w-10 h-10 text-cyan-600 mb-3" />
+                        <p className="font-semibold text-gray-900">My Timetable</p>
+                        <p className="text-sm text-gray-500">Weekly schedule</p>
+                    </button>
+                    <button
+                        onClick={() => router.push('/dashboard/student/progress')}
+                        className="bg-white rounded-xl p-6 shadow-sm hover:shadow-md transition-shadow text-left"
+                    >
+                        <Trophy className="w-10 h-10 text-yellow-600 mb-3" />
+                        <p className="font-semibold text-gray-900">My Progress</p>
+                        <p className="text-sm text-gray-500">Track achievements</p>
                     </button>
                 </div>
             </main>

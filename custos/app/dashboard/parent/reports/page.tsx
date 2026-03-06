@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { supabase, type User } from '@/lib/supabase'
-import { useRouter } from 'next/navigation'
+import { useSmartBack } from '@/lib/navigation'
 import {
     Award, ArrowLeft, Loader2, BookOpen, Download
 } from 'lucide-react'
@@ -16,7 +16,7 @@ interface ChildReport {
 }
 
 export default function ParentReportsPage() {
-    const router = useRouter()
+    const { goBack, router } = useSmartBack('/dashboard/parent')
     const [loading, setLoading] = useState(true)
     const [reports, setReports] = useState<ChildReport[]>([])
 
@@ -155,7 +155,7 @@ export default function ParentReportsPage() {
         <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
             <header className="bg-white/5 backdrop-blur-lg border-b border-white/10 px-6 py-4">
                 <div className="max-w-4xl mx-auto flex items-center gap-4">
-                    <button onClick={() => router.push('/dashboard/parent')} className="p-2 hover:bg-white/10 rounded-lg">
+                    <button onClick={goBack} className="p-2 hover:bg-white/10 rounded-lg">
                         <ArrowLeft className="w-5 h-5 text-purple-300" />
                     </button>
                     <div>
@@ -205,8 +205,8 @@ export default function ParentReportsPage() {
                                                 <div className="flex items-center gap-3">
                                                     <span className="text-purple-300">{subject.marks}/100</span>
                                                     <span className={`px-2 py-1 rounded text-sm font-medium ${subject.grade.includes('A') ? 'bg-green-500/20 text-green-400' :
-                                                            subject.grade === 'B' ? 'bg-blue-500/20 text-blue-400' :
-                                                                'bg-yellow-500/20 text-yellow-400'
+                                                        subject.grade === 'B' ? 'bg-blue-500/20 text-blue-400' :
+                                                            'bg-yellow-500/20 text-yellow-400'
                                                         }`}>
                                                         {subject.grade}
                                                     </span>

@@ -1,7 +1,8 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { useRouter, useParams } from 'next/navigation'
+import { useParams } from 'next/navigation'
+import { useSmartBack } from '@/lib/navigation'
 import { supabase } from '@/lib/supabase'
 import {
     ArrowLeft, Brain, Sparkles, Loader2, Check, X,
@@ -42,7 +43,7 @@ interface MCQGeneration {
 }
 
 export default function MCQGeneratorPage() {
-    const router = useRouter()
+    const { goBack } = useSmartBack('/dashboard/manage/topics')
     const params = useParams()
     const topicId = params.id as string
 
@@ -211,7 +212,7 @@ export default function MCQGeneratorPage() {
             <div className="min-h-screen flex items-center justify-center">
                 <div className="text-center">
                     <h2 className="text-2xl font-bold text-gray-900 mb-2">Topic Not Found</h2>
-                    <button onClick={() => router.back()} className="text-purple-600 underline">Go Back</button>
+                    <button onClick={goBack} className="text-purple-600 underline">Go Back</button>
                 </div>
             </div>
         )
@@ -222,7 +223,7 @@ export default function MCQGeneratorPage() {
             <div className="max-w-5xl mx-auto">
                 {/* Header */}
                 <div className="flex items-center gap-4 mb-8">
-                    <button onClick={() => router.back()} className="p-2 hover:bg-white rounded-lg">
+                    <button onClick={goBack} className="p-2 hover:bg-white rounded-lg">
                         <ArrowLeft className="w-6 h-6 text-gray-600" />
                     </button>
                     <div className="flex-1">
@@ -324,8 +325,8 @@ export default function MCQGeneratorPage() {
                                                 setSubmitted(false)
                                             }}
                                             className={`w-full p-3 rounded-lg text-left transition-all ${selectedGeneration?.generation_id === gen.generation_id
-                                                    ? 'bg-purple-100 border-purple-300 border-2'
-                                                    : 'bg-gray-50 hover:bg-gray-100'
+                                                ? 'bg-purple-100 border-purple-300 border-2'
+                                                : 'bg-gray-50 hover:bg-gray-100'
                                                 }`}
                                         >
                                             <p className="font-medium">Set #{gen.generation_number}</p>
@@ -363,10 +364,10 @@ export default function MCQGeneratorPage() {
                                         <div key={q.id} className="border-b pb-4">
                                             <div className="flex items-start gap-3">
                                                 <span className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm ${submitted
-                                                        ? userAnswers[q.id] === q.correct_answer
-                                                            ? 'bg-green-100 text-green-700'
-                                                            : 'bg-red-100 text-red-700'
-                                                        : 'bg-gray-100 text-gray-700'
+                                                    ? userAnswers[q.id] === q.correct_answer
+                                                        ? 'bg-green-100 text-green-700'
+                                                        : 'bg-red-100 text-red-700'
+                                                    : 'bg-gray-100 text-gray-700'
                                                     }`}>
                                                     {idx + 1}
                                                 </span>
@@ -379,14 +380,14 @@ export default function MCQGeneratorPage() {
                                                                 onClick={() => selectAnswer(q.id, key)}
                                                                 disabled={submitted}
                                                                 className={`w-full p-3 rounded-lg text-left transition-all flex items-center gap-3 ${submitted
-                                                                        ? key === q.correct_answer
-                                                                            ? 'bg-green-100 border-green-400 border-2'
-                                                                            : userAnswers[q.id] === key
-                                                                                ? 'bg-red-100 border-red-400 border-2'
-                                                                                : 'bg-gray-50'
+                                                                    ? key === q.correct_answer
+                                                                        ? 'bg-green-100 border-green-400 border-2'
                                                                         : userAnswers[q.id] === key
-                                                                            ? 'bg-purple-100 border-purple-400 border-2'
-                                                                            : 'bg-gray-50 hover:bg-gray-100'
+                                                                            ? 'bg-red-100 border-red-400 border-2'
+                                                                            : 'bg-gray-50'
+                                                                    : userAnswers[q.id] === key
+                                                                        ? 'bg-purple-100 border-purple-400 border-2'
+                                                                        : 'bg-gray-50 hover:bg-gray-100'
                                                                     }`}
                                                             >
                                                                 <span className="w-6 h-6 rounded-full bg-white border-2 flex items-center justify-center text-sm font-medium">

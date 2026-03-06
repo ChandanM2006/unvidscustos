@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
-import { useRouter } from 'next/navigation'
+import { useSmartBack } from '@/lib/navigation'
 import { ArrowLeft, Plus, Pencil, Trash2 } from 'lucide-react'
 
 interface Class {
@@ -13,7 +13,7 @@ interface Class {
 }
 
 export default function ClassesPage() {
-    const router = useRouter()
+    const { goBack, router } = useSmartBack('/dashboard/manage')
     const [classes, setClasses] = useState<Class[]>([])
     const [loading, setLoading] = useState(true)
     const [showModal, setShowModal] = useState(false)
@@ -46,7 +46,7 @@ export default function ClassesPage() {
             // Only admins can access this page
             if (!userData || !['super_admin', 'sub_admin'].includes(userData.role)) {
                 alert('Only administrators can access this page.')
-                router.push('/dashboard')
+                router.replace('/dashboard/redirect')
                 return
             }
 
@@ -170,7 +170,7 @@ export default function ClassesPage() {
                 <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                     <div className="flex items-center justify-between h-16">
                         <button
-                            onClick={() => router.push('/dashboard')}
+                            onClick={goBack}
                             className="flex items-center space-x-2 text-gray-600 hover:text-gray-900 transition-colors"
                         >
                             <ArrowLeft className="w-5 h-5" />

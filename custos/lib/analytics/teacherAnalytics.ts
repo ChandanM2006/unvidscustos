@@ -214,13 +214,13 @@ export async function getClassPerformance(
     const { data: topicNames } = weakTopicIds.length > 0
         ? await supabase
             .from('lesson_topics')
-            .select('topic_id, topic_name')
+            .select('topic_id, topic_title')
             .in('topic_id', weakTopicIds)
         : { data: [] }
 
     const topicNameMap = new Map<string, string>()
     for (const t of topicNames || []) {
-        topicNameMap.set(t.topic_id, t.topic_name)
+        topicNameMap.set(t.topic_id, t.topic_title)
     }
 
     const weakTopicsMap = new Map<string, Array<{ topic_id: string; topic_name: string; weakness_score: number }>>()
@@ -344,7 +344,7 @@ export async function getStudentDeepDive(studentId: string): Promise<StudentDeep
             .single(),
         supabase
             .from('student_topic_performance')
-            .select('*, lesson_topics(topic_name)')
+            .select('*, lesson_topics(topic_title)')
             .eq('student_id', studentId),
         supabase
             .from('assessment_phases')
@@ -354,7 +354,7 @@ export async function getStudentDeepDive(studentId: string): Promise<StudentDeep
             .order('scheduled_date', { ascending: false }),
         supabase
             .from('student_doubts')
-            .select('*, lesson_topics(topic_name)')
+            .select('*, lesson_topics(topic_title)')
             .eq('student_id', studentId)
             .order('created_at', { ascending: false })
             .limit(10),
@@ -433,7 +433,7 @@ export async function getStudentDeepDive(studentId: string): Promise<StudentDeep
     // 7. Topic performance
     const topics = (topicsResult.data || []).map((t: any) => ({
         topic_id: t.topic_id,
-        topic_name: t.lesson_topics?.topic_name || 'Unknown',
+        topic_name: t.lesson_topics?.topic_title || 'Unknown',
         weakness_score: t.weakness_score,
         accuracy_percentage: t.accuracy_percentage,
         total_attempts: t.total_attempts,
@@ -450,7 +450,7 @@ export async function getStudentDeepDive(studentId: string): Promise<StudentDeep
         teacher_response: d.teacher_response,
         status: d.status,
         created_at: d.created_at,
-        topic_name: d.lesson_topics?.topic_name || null,
+        topic_name: d.lesson_topics?.topic_title || null,
     }))
 
     // 9. Concerning patterns
@@ -518,7 +518,7 @@ export async function getTopicClassReport(
     // Get topic name
     const { data: topic } = await supabase
         .from('lesson_topics')
-        .select('topic_id, topic_name')
+        .select('topic_id, topic_title')
         .eq('topic_id', topicId)
         .single()
 
@@ -567,7 +567,7 @@ export async function getTopicClassReport(
 
     return {
         topic_id: topicId,
-        topic_name: topic.topic_name,
+        topic_name: topic.topic_title,
         class_average: Math.round(avgAccuracy * 10) / 10,
         mastered_count: withData.filter(s => s.accuracy >= 80).length,
         struggling_count: withData.filter(s => s.accuracy < 60 && s.accuracy >= 0).length,
