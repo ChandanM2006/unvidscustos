@@ -1,0 +1,136 @@
+
+> custos@0.1.0 build
+> next build
+
+▲ Next.js 16.1.2 (Turbopack)
+- Environments: .env.local, .env.production
+
+  Creating an optimized production build ...
+✓ Compiled successfully in 29.0s
+  Running TypeScript ...
+  Collecting page data using 11 workers ...
+  Generating static pages using 11 workers (0/82) ...
+  Generating static pages using 11 workers (20/82) 
+  Generating static pages using 11 workers (40/82) 
+  Generating static pages using 11 workers (61/82) 
+✓ Generating static pages using 11 workers (82/82) in 5.0s
+  Finalizing page optimization ...
+
+Route (app)
+┌ ○ /
+├ ○ /_not-found
+├ ƒ /api/admin/dedup-timetable
+├ ƒ /api/admin/link-parent
+├ ƒ /api/admin/live-sessions
+├ ƒ /api/brain/activity
+├ ƒ /api/brain/ocr
+├ ƒ /api/brain/practice
+├ ƒ /api/brain/work/daily
+├ ƒ /api/brain/work/daily/submit
+├ ƒ /api/brain/work/lesson
+├ ƒ /api/brain/work/weekly
+├ ƒ /api/cron/generate-daily-practice
+├ ƒ /api/cron/generate-weekly-tests
+├ ƒ /api/debug/parent-links
+├ ƒ /api/email/send-invitation
+├ ƒ /api/email/send-otp
+├ ƒ /api/email/send-welcome
+├ ƒ /api/fees/create-order
+├ ƒ /api/fees/payments
+├ ƒ /api/fees/structures
+├ ƒ /api/fees/verify-payment
+├ ƒ /api/lesson-plan/generate
+├ ƒ /api/notifications
+├ ƒ /api/parent/child/[id]
+├ ƒ /api/parent/children
+├ ƒ /api/posts
+├ ƒ /api/student/analytics
+├ ƒ /api/student/tutor
+├ ƒ /api/syllabus/extract-textbook
+├ ƒ /api/teacher/class-performance
+├ ƒ /api/teacher/doubts
+├ ƒ /api/teacher/live-session
+├ ƒ /api/teacher/student-detail/[id]
+├ ƒ /api/teacher/topic-report
+├ ƒ /api/users/create
+├ ƒ /api/users/update
+├ ○ /dashboard
+├ ○ /dashboard/calendar
+├ ○ /dashboard/live
+├ ○ /dashboard/manage
+├ ○ /dashboard/manage/academic-years
+├ ○ /dashboard/manage/attendance
+├ ○ /dashboard/manage/branding
+├ ○ /dashboard/manage/bulk-import
+├ ○ /dashboard/manage/classes
+├ ○ /dashboard/manage/fees
+├ ○ /dashboard/manage/lesson-plans
+├ ƒ /dashboard/manage/lesson-plans/[id]
+├ ○ /dashboard/manage/lesson-plans/create
+├ ○ /dashboard/manage/parent-links
+├ ○ /dashboard/manage/promotions
+├ ○ /dashboard/manage/report-cards
+├ ○ /dashboard/manage/sections
+├ ○ /dashboard/manage/subjects
+├ ○ /dashboard/manage/syllabus
+├ ƒ /dashboard/manage/syllabus/[id]
+├ ƒ /dashboard/manage/syllabus/[id]/topics
+├ ○ /dashboard/manage/syllabus/upload
+├ ○ /dashboard/manage/timetable
+├ ○ /dashboard/manage/timetable/settings
+├ ○ /dashboard/manage/topics
+├ ƒ /dashboard/manage/topics/[id]/mcq
+├ ƒ /dashboard/manage/topics/[id]/resources
+├ ○ /dashboard/manage/users
+├ ○ /dashboard/manage/users/add
+├ ○ /dashboard/manage/users/invitations
+├ ○ /dashboard/mcq
+├ ○ /dashboard/notifications
+├ ○ /dashboard/parent
+├ ○ /dashboard/parent/attendance
+├ ○ /dashboard/parent/children
+├ ƒ /dashboard/parent/children/[id]
+├ ○ /dashboard/parent/fees
+├ ○ /dashboard/parent/messages
+├ ○ /dashboard/parent/reports
+├ ○ /dashboard/parent/timetable
+├ ○ /dashboard/posts
+├ ○ /dashboard/progress
+├ ○ /dashboard/resources
+├ ƒ /dashboard/resources/[topicId]
+├ ○ /dashboard/student
+├ ○ /dashboard/student/analytics
+├ ○ /dashboard/student/attendance
+├ ○ /dashboard/student/mcq
+├ ○ /dashboard/student/practice
+├ ○ /dashboard/student/progress
+├ ○ /dashboard/student/report-card
+├ ○ /dashboard/student/subjects
+├ ○ /dashboard/student/timetable
+├ ○ /dashboard/student/tutor
+├ ○ /dashboard/student/work/daily
+├ ○ /dashboard/teacher
+├ ○ /dashboard/teacher/attendance
+├ ○ /dashboard/teacher/brain
+├ ○ /dashboard/teacher/brain/daily
+├ ○ /dashboard/teacher/brain/lesson
+├ ○ /dashboard/teacher/brain/lesson/grade
+├ ○ /dashboard/teacher/brain/weekly
+├ ○ /dashboard/teacher/brain/weekly/grade
+├ ○ /dashboard/teacher/doubts
+├ ○ /dashboard/teacher/live-class
+├ ○ /dashboard/teacher/marks-entry
+├ ○ /dashboard/teacher/messages
+├ ○ /dashboard/teacher/performance
+├ ƒ /dashboard/teacher/students/[id]
+├ ○ /dashboard/teacher/timetable
+├ ƒ /dashboard/teacher/topics/[topicId]
+├ ○ /join
+├ ○ /login
+├ ○ /platform
+└ ○ /platform/schools
+
+
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand
+

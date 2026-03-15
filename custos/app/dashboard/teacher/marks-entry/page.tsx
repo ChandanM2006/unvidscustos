@@ -29,7 +29,8 @@ interface Exam {
     exam_id: string
     name: string
     status: string
-    exam_types?: { name: string; short_code: string }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    exam_types?: any
 }
 
 interface Mark {

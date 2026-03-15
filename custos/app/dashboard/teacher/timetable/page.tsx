@@ -23,6 +23,7 @@ interface TimetableEntry {
     subjects?: { name: string }
     classes?: { name: string }
     sections?: { name: string }
+    is_substitute?: boolean
 }
 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
@@ -77,13 +78,29 @@ export default function TeacherTimetablePage() {
                     entry_id,
                     day_of_week,
                     slot_id,
+                    notes,
+                    teacher_id,
                     subjects (name),
                     classes (name),
                     sections (name)
                 `)
-                .eq('teacher_id', userData.user_id)
+                .or(`teacher_id.eq.${userData.user_id},notes.ilike.%${userData.user_id}%`)
 
-            const allEntries = (entryData as any) || []
+            const parsedEntries = ((entryData || []) as any[]).filter(e => {
+                let subId = null;
+                if (e.notes) {
+                    try { const n = JSON.parse(e.notes); if (n.type === 'substitution') subId = n.substitute_teacher_id; } catch(err){}
+                }
+                if (subId) {
+                    if (subId === userData.user_id) {
+                        e.is_substitute = true;
+                        return true;
+                    }
+                    return false; // I am primary but someone else is substituting
+                }
+                return e.teacher_id === userData.user_id;
+            });
+            const allEntries = parsedEntries;
             setEntries(allEntries)
 
             // Detect conflicts: same day+slot with multiple entries
@@ -218,6 +235,7 @@ export default function TeacherTimetablePage() {
                                                                 : 'bg-gradient-to-br from-blue-500/30 to-indigo-500/30 border border-blue-400/30'
                                                                 }`}>
                                                                 <div className={`text-sm font-semibold ${hasConflict ? 'text-red-200' : 'text-white'}`}>
+                                                                    {entry.is_substitute && <span className="text-[10px] uppercase font-bold text-purple-600 bg-purple-100 px-1 py-0.5 rounded shadow-sm mr-1">SUB</span>}
                                                                     {entry.subjects?.name || 'Subject'}
                                                                 </div>
                                                                 <div className={`text-xs ${hasConflict ? 'text-red-300' : 'text-blue-300'}`}>

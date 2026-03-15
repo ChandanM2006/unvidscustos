@@ -3,7 +3,7 @@
 import { useState, useEffect, Suspense } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { GraduationCap, BookOpen, Users, Shield, Eye, EyeOff, ArrowLeft, Loader2 } from 'lucide-react'
+import { GraduationCap, BookOpen, Users, Shield, UserCog, Eye, EyeOff, ArrowLeft, Loader2 } from 'lucide-react'
 
 const roleConfig: Record<string, { label: string; icon: any; gradient: string }> = {
     student: {
@@ -22,9 +22,14 @@ const roleConfig: Record<string, { label: string; icon: any; gradient: string }>
         gradient: 'from-teal-500 to-cyan-600'
     },
     admin: {
-        label: 'Admin',
+        label: 'Super Admin',
         icon: Shield,
         gradient: 'from-red-500 to-orange-600'
+    },
+    subadmin: {
+        label: 'Sub Admin',
+        icon: UserCog,
+        gradient: 'from-purple-500 to-pink-600'
     },
 }
 
@@ -72,9 +77,9 @@ function LoginContent() {
                 throw new Error('User profile not found. Please contact your administrator.')
             }
 
-            const isAdmin = selectedRole === 'admin' &&
-                (userData.role === 'super_admin' || userData.role === 'sub_admin')
-            const isMatchingRole = userData.role === selectedRole || isAdmin
+            const isSuperAdmin = selectedRole === 'admin' && userData.role === 'super_admin'
+            const isSubAdmin = selectedRole === 'subadmin' && userData.role === 'sub_admin'
+            const isMatchingRole = userData.role === selectedRole || isSuperAdmin || isSubAdmin
 
             if (!isMatchingRole) {
                 await supabase.auth.signOut()
@@ -125,7 +130,7 @@ function LoginContent() {
 
                 {/* Logo */}
                 <div className="text-center mb-8">
-                    <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
+                    <h1 className="text-4xl font-bold text-white">
                         CUSTOS
                     </h1>
                     <p className="text-purple-300 mt-2">School Management System</p>
@@ -204,9 +209,8 @@ function LoginContent() {
                     </form>
                 </div>
 
-                {/* Footer */}
                 <div className="mt-6 text-center text-sm text-purple-400">
-                    <p>Secure login powered by Supabase</p>
+                    <p>Secure Enterprise Login Portal</p>
                 </div>
             </div>
         </div>

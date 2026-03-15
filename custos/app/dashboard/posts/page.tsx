@@ -17,6 +17,7 @@ interface Post {
     content: string | null
     media_url: string | null
     post_type: 'photo' | 'file' | 'blog'
+    target_audience?: string
     created_at: string
     author?: {
         full_name: string
@@ -49,6 +50,7 @@ export default function PostsPage() {
     const [content, setContent] = useState('')
     const [selectedFile, setSelectedFile] = useState<File | null>(null)
     const [filePreview, setFilePreview] = useState<string | null>(null)
+    const [targetAudiences, setTargetAudiences] = useState<string[]>(['all'])
     const [submitting, setSubmitting] = useState(false)
 
     useEffect(() => {
@@ -80,7 +82,7 @@ export default function PostsPage() {
             setIsAdmin(admin)
 
             // Load posts
-            await loadPosts(userData.school_id)
+            await loadPosts(userData.school_id, userData.role)
         } catch (error) {
             console.error('Error loading data:', error)
         } finally {
@@ -88,12 +90,14 @@ export default function PostsPage() {
         }
     }
 
-    async function loadPosts(sid?: string) {
+    async function loadPosts(sid?: string, currentRole?: string) {
         const id = sid || schoolId
         if (!id) return
 
+        const userRole = currentRole || user?.role || ''
+
         try {
-            const res = await fetch(`/api/posts?school_id=${id}`)
+            const res = await fetch(`/api/posts?school_id=${id}&role=${userRole}`)
             const data = await res.json()
 
             if (data.posts) {
@@ -101,12 +105,19 @@ export default function PostsPage() {
             }
         } catch (error) {
             console.error('Error loading posts:', error)
-            // Fallback: load directly from supabase
-            const { data } = await supabase
+            let query = supabase
                 .from('posts')
-                .select('*')
+                .select(`
+                    *,
+                    author:users!author_id(full_name, role)
+                `)
                 .eq('school_id', id)
-                .order('created_at', { ascending: false })
+
+            if (userRole && userRole !== 'super_admin' && userRole !== 'sub_admin') {
+                query = query.or(`target_audience.eq.all,target_audience.eq.${userRole}`)
+            }
+
+            const { data } = await query.order('created_at', { ascending: false })
 
             if (data) {
                 setPosts(data as Post[])
@@ -146,6 +157,7 @@ export default function PostsPage() {
             formData.append('post_type', postType)
             formData.append('title', title)
             formData.append('content', content)
+            formData.append('target_audience', targetAudiences.join(','))
 
             if (selectedFile) {
                 formData.append('file', selectedFile)
@@ -194,6 +206,7 @@ export default function PostsPage() {
         setContent('')
         setSelectedFile(null)
         setFilePreview(null)
+        setTargetAudiences(['all'])
     }
 
     function formatTimeAgo(dateStr: string): string {
@@ -427,6 +440,46 @@ export default function PostsPage() {
                                     />
                                 </div>
 
+                                {/* Target Audience Selector */}
+                                <div>
+                                    <label className="block text-sm font-medium text-white/50 mb-2">Visible To</label>
+                                    <div className="flex flex-wrap gap-2">
+                                        {[
+                                            { id: 'all', label: 'Everyone' },
+                                            { id: 'teacher', label: 'Teachers' },
+                                            { id: 'student', label: 'Students' },
+                                            { id: 'parent', label: 'Parents' },
+                                        ].map(option => {
+                                            const isSelected = targetAudiences.includes(option.id)
+                                            return (
+                                                <button
+                                                    key={option.id}
+                                                    type="button"
+                                                    onClick={() => {
+                                                        if (option.id === 'all') {
+                                                            setTargetAudiences(['all'])
+                                                        } else {
+                                                            const filtered = targetAudiences.filter(t => t !== 'all')
+                                                            if (filtered.includes(option.id)) {
+                                                                const next = filtered.filter(t => t !== option.id)
+                                                                setTargetAudiences(next.length === 0 ? ['all'] : next)
+                                                            } else {
+                                                                setTargetAudiences([...filtered, option.id])
+                                                            }
+                                                        }
+                                                    }}
+                                                    className={`px-4 py-2 rounded-xl text-sm font-medium transition-all ${isSelected
+                                                            ? 'bg-gradient-to-r from-rose-500 to-orange-600 text-white shadow-lg shadow-rose-500/25 border-transparent'
+                                                            : 'bg-white/5 border border-white/10 text-white/50 hover:bg-white/10 hover:text-white'
+                                                        }`}
+                                                >
+                                                    {option.label}
+                                                </button>
+                                            )
+                                        })}
+                                    </div>
+                                </div>
+
                                 {/* Additional file upload for blog type */}
                                 {postType === 'blog' && !selectedFile && (
                                     <button
@@ -511,6 +564,15 @@ export default function PostsPage() {
                                             <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium bg-gradient-to-r ${typeConfig.color} text-white`}>
                                                 {typeConfig.emoji} {typeConfig.label}
                                             </span>
+                                            {post.target_audience && post.target_audience !== 'all' && (
+                                                <div className="flex flex-wrap gap-1">
+                                                    {post.target_audience.split(',').map(aud => (
+                                                        <span key={aud} className={`text-[10px] px-2 py-0.5 rounded-full font-medium bg-white/10 text-white/70`}>
+                                                            For {aud.charAt(0).toUpperCase() + aud.slice(1)}s
+                                                        </span>
+                                                    ))}
+                                                </div>
+                                            )}
                                             {isAdmin && (
                                                 <button
                                                     onClick={() => deletePost(post.post_id)}

@@ -56,20 +56,15 @@ export async function POST(request: NextRequest) {
     try {
         const body = await request.json()
         const {
-            class_id, section_id, subject_id, document_id,
+            class_id, section_id, subject_id, document_id, topic_ids,
             teacher_id, total_marks = 60, question_count = 20,
         } = body
 
-        if (!class_id || !subject_id || !document_id) {
-            return NextResponse.json({ error: 'class_id, subject_id, document_id required' }, { status: 400 })
+        if (!class_id || !subject_id || !document_id || !topic_ids || topic_ids.length === 0) {
+            return NextResponse.json({ error: 'class_id, subject_id, document_id, and topic_ids are required' }, { status: 400 })
         }
 
-        // Check existing
-        const { data: existing } = await supabase
-            .from('brain_lesson_work').select('work_id')
-            .eq('class_id', class_id).eq('subject_id', subject_id).eq('document_id', document_id)
-            .maybeSingle()
-        if (existing) await supabase.from('brain_lesson_work').delete().eq('work_id', existing.work_id)
+
 
         // ─── Get chapter/document info ───
         const { data: doc } = await supabase
@@ -77,11 +72,13 @@ export async function POST(request: NextRequest) {
             .select('document_id, chapter_title, chapter_number, content, grade_level')
             .eq('document_id', document_id).single()
 
-        // ─── Get ALL topics for this chapter ───
+        // ─── Get ONLY requested topics for this chapter ───
         const { data: topics } = await supabase
             .from('lesson_topics')
             .select('topic_id, topic_title, content, difficulty_level, learning_objectives')
-            .eq('document_id', document_id).order('topic_number')
+            .eq('document_id', document_id)
+            .in('topic_id', topic_ids)
+            .order('topic_number')
         const topicData = topics || []
         const topicIds = topicData.map(t => t.topic_id)
 
@@ -309,6 +306,17 @@ export async function PUT(request: NextRequest) {
                 }
             }
             await supabase.from('brain_lesson_work').update({ status: 'completed', corrected_at: new Date().toISOString() }).eq('work_id', work_id)
+            
+            // Mark the corresponding lesson_plan as completed now that the final assessment is done
+            const { data: workDetails } = await supabase.from('brain_lesson_work').select('class_id, document_id').eq('work_id', work_id).single()
+            if (workDetails?.document_id && workDetails?.class_id) {
+                await supabase.from('lesson_plans')
+                    .update({ status: 'completed' })
+                    .eq('document_id', workDetails.document_id)
+                    .eq('class_id', workDetails.class_id)
+                    .in('status', ['published', 'in_progress'])
+            }
+
             return NextResponse.json({ success: true, message: 'Lesson test completed', students_updated: (responses || []).length })
         }
 

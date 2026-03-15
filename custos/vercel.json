@@ -9,11 +9,6 @@
             "schedule": "30 9 * * 0"
         }
     ],
-    "env": {
-        "SUPABASE_SERVICE_ROLE_KEY": "@supabase-service-role-key",
-        "CRON_SECRET": "@cron-secret",
-        "ANTHROPIC_API_KEY": "@anthropic-api-key"
-    },
     "headers": [
         {
             "source": "/api/(.*)",

@@ -94,7 +94,7 @@ export default function ParentMessagesPage() {
                 loadedChildren = (childrenJson.children || []).map((c: any) => ({
                     user_id: c.student_id,
                     full_name: c.full_name,
-                    class_id: '',
+                    class_id: c.class_id || '',
                     class_name: c.class_name || ''
                 }))
             }
@@ -136,28 +136,48 @@ export default function ParentMessagesPage() {
 
             const teacherIds = (teachersData || []).map((t: any) => t.user_id)
 
-            // Fetch teacher → subject mappings
-            let subjectMap: Record<string, string[]> = {}
-            if (teacherIds.length > 0) {
-                const { data: tsData } = await supabase
-                    .from('teacher_subjects')
-                    .select('teacher_id, subjects(name)')
-                    .in('teacher_id', teacherIds)
-
-                if (tsData) {
-                    tsData.forEach((ts: any) => {
-                        const subjectName = ts.subjects?.name
-                        if (subjectName) {
-                            if (!subjectMap[ts.teacher_id]) subjectMap[ts.teacher_id] = []
-                            subjectMap[ts.teacher_id].push(subjectName)
-                        }
-                    })
-                }
-            }
-
             // Determine child's class for class teacher matching
             const childClassId = loadedChildren.length > 0 ? loadedChildren[0].class_id : null
 
+            // Fetch teacher → subject mappings via timetable_entries
+            let subjectMap: Record<string, string[]> = {}
+            if (teacherIds.length > 0) {
+                let query = supabase
+                    .from('timetable_entries')
+                    .select('teacher_id, subject_id')
+                    .in('teacher_id', teacherIds)
+                    
+                if (childClassId) {
+                    query = query.eq('class_id', childClassId)
+                }
+                
+                const { data: ttData } = await query
+
+                if (ttData && ttData.length > 0) {
+                    const subjectIds = [...new Set(ttData.map(t => t.subject_id).filter(Boolean))]
+                    
+                    if (subjectIds.length > 0) {
+                        const { data: subjectsData } = await supabase
+                            .from('subjects')
+                            .select('subject_id, name')
+                            .in('subject_id', subjectIds)
+                            
+                        const subNameMap = new Map((subjectsData || []).map((s: any) => [s.subject_id, s.name]))
+                        
+                        ttData.forEach((tt: any) => {
+                            if (tt.teacher_id && tt.subject_id) {
+                                const subjectName = subNameMap.get(tt.subject_id)
+                                if (subjectName) {
+                                    if (!subjectMap[tt.teacher_id]) subjectMap[tt.teacher_id] = []
+                                    if (!subjectMap[tt.teacher_id].includes(subjectName)) {
+                                        subjectMap[tt.teacher_id].push(subjectName)
+                                    }
+                                }
+                            }
+                        })
+                    }
+                }
+            }
             const enrichedTeachers: Teacher[] = (teachersData || []).map((t: any) => ({
                 user_id: t.user_id,
                 full_name: t.full_name,

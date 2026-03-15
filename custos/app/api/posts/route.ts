@@ -11,19 +11,26 @@ export async function GET(request: NextRequest) {
     try {
         const { searchParams } = new URL(request.url)
         const schoolId = searchParams.get('school_id')
+        const role = searchParams.get('role')
 
         if (!schoolId) {
             return NextResponse.json({ error: 'school_id is required' }, { status: 400 })
         }
 
-        const { data, error } = await supabase
+        let query = supabase
             .from('posts')
             .select(`
                 *,
                 author:users!author_id(full_name, role)
             `)
             .eq('school_id', schoolId)
-            .order('created_at', { ascending: false })
+
+        // Filter based on role if provided and not an admin
+        if (role && role !== 'super_admin' && role !== 'sub_admin') {
+            query = query.or(`target_audience.eq.all,target_audience.eq.${role}`)
+        }
+
+        const { data, error } = await query.order('created_at', { ascending: false })
 
         if (error) throw error
 
@@ -44,6 +51,7 @@ export async function POST(request: NextRequest) {
         const title = formData.get('title') as string
         const content = formData.get('content') as string
         const postType = formData.get('post_type') as string
+        const targetAudience = (formData.get('target_audience') as string) || 'all'
         const file = formData.get('file') as File | null
 
         if (!schoolId || !authorId || !postType) {
@@ -98,6 +106,7 @@ export async function POST(request: NextRequest) {
                 content: content || null,
                 media_url: mediaUrl,
                 post_type: postType,
+                target_audience: targetAudience,
             })
             .select(`
                 *,

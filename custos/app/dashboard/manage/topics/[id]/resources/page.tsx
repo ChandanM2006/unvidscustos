@@ -6,7 +6,7 @@ import { useSmartBack } from '@/lib/navigation'
 import { supabase } from '@/lib/supabase'
 import {
     ArrowLeft, BookOpen, FileText, ClipboardList, Brain,
-    Calculator, Sparkles, Loader2, Download, Check, RefreshCw
+    Calculator, Sparkles, Loader2, Download, Check, RefreshCw, Edit3
 } from 'lucide-react'
 
 interface Topic {
@@ -54,6 +54,9 @@ export default function TopicResourcesPage() {
     const [generating, setGenerating] = useState<string | null>(null) // Which resource is being generated
     const [activeResource, setActiveResource] = useState<string | null>(null)
     const [viewContent, setViewContent] = useState<any>(null)
+    const [isEditing, setIsEditing] = useState(false)
+    const [editContent, setEditContent] = useState<any>(null)
+
 
     useEffect(() => {
         if (topicId) {
@@ -176,6 +179,7 @@ export default function TopicResourcesPage() {
         if (content) {
             setActiveResource(resourceType)
             setViewContent(content)
+            setIsEditing(false)
         }
     }
 
@@ -194,6 +198,139 @@ export default function TopicResourcesPage() {
         }
         return colors[color] || colors.purple
     }
+
+    const handleEditChange = (path: any[], value: any) => {
+        setEditContent((prev: any) => {
+            const newObj = JSON.parse(JSON.stringify(prev))
+            let curr = newObj
+            for (let i = 0; i < path.length - 1; i++) {
+                curr = curr[path[i]]
+            }
+            curr[path[path.length - 1]] = value
+            return newObj
+        })
+    }
+
+    const formatLabel = (key: string) => {
+        return key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())
+    }
+
+    // A universal recursive renderer for both Edit and View modes
+    const renderContent = (data: any, path: any[] = [], isEditing: boolean = false): any => {
+        if (data === null || data === undefined) return null
+
+        if (Array.isArray(data)) {
+            // Check if array of strings or simple values
+            if (data.length > 0 && typeof data[0] !== 'object') {
+                return (
+                    <ul className={`space-y-3 ${path.length === 1 ? 'mb-8 bg-purple-50/50 p-6 rounded-2xl border border-purple-100' : ''}`}>
+                        {data.map((item, idx) => (
+                            <li key={idx} className="flex gap-3">
+                                <span className="text-purple-500 mt-1">•</span>
+                                {isEditing ? (
+                                    <textarea
+                                        className="flex-1 rounded-xl border border-gray-200 p-3 focus:border-purple-500 focus:ring-2 focus:ring-purple-200 outline-none resize-y min-h-[60px]"
+                                        value={item}
+                                        onChange={(e) => handleEditChange([...path, idx], e.target.value)}
+                                    />
+                                ) : (
+                                    <span className="text-gray-700 leading-relaxed font-medium">{item}</span>
+                                )}
+                            </li>
+                        ))}
+                    </ul>
+                )
+            } else {
+                // Array of objects (like questions, sections, formulas)
+                return (
+                    <div className="space-y-6">
+                        {data.map((item, idx) => (
+                            <div key={idx} className={`${path.length === 1 ? 'p-6 bg-white border border-gray-200 rounded-2xl shadow-sm' : 'border-l-2 border-purple-200 pl-4 mb-4'}`}>
+                                {renderContent(item, [...path, idx], isEditing)}
+                            </div>
+                        ))}
+                    </div>
+                )
+            }
+        } else if (typeof data === 'object') {
+            return (
+                <div className="space-y-4">
+                    {Object.keys(data).map(key => {
+                        // Omit time metadata completely
+                        if (key === 'duration_minutes' || key === 'time_taken' || key === 'duration') return null
+                        if (key === 'title' && path.length === 0) return null // Handled in header
+
+                        const isTopLevel = path.length === 0
+
+                        return (
+                            <div key={key} className={isTopLevel ? 'mb-8' : 'mb-4'}>
+                                {isTopLevel && (
+                                    <h3 className="text-xl font-bold text-gray-900 mb-4 border-b border-gray-100 pb-2">
+                                        {formatLabel(key)}
+                                    </h3>
+                                )}
+                                {!isTopLevel && typeof data[key] !== 'object' && (
+                                    <label className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-1 block">
+                                        {formatLabel(key)}
+                                    </label>
+                                )}
+                                {renderContent(data[key], [...path, key], isEditing)}
+                            </div>
+                        )
+                    })}
+                </div>
+            )
+        } else if (typeof data === 'string' || typeof data === 'number') {
+            if (isEditing) {
+                if (typeof data === 'number') {
+                    return (
+                        <input
+                            type="number"
+                            className="w-full p-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                            value={data}
+                            onChange={(e) => handleEditChange(path, Number(e.target.value))}
+                        />
+                    )
+                }
+                return (
+                    <textarea
+                        className="text-gray-700 w-full rounded-xl border border-gray-200 p-4 focus:border-purple-500 focus:ring-2 focus:ring-purple-200 outline-none leading-relaxed resize-y"
+                        value={data}
+                        onChange={(e) => handleEditChange(path, e.target.value)}
+                        rows={String(data).length > 100 ? 4 : 1}
+                    />
+                )
+            } else {
+                return (
+                    <p className="text-gray-700 whitespace-pre-wrap leading-relaxed">
+                        {data}
+                    </p>
+                )
+            }
+        }
+        return null
+    }
+
+
+    async function saveEdits() {
+        if (!activeResource || !resources?.resource_id || !editContent) return
+
+        try {
+            const updateData = { [activeResource]: editContent }
+            await supabase
+                .from('topic_resources')
+                .update(updateData)
+                .eq('resource_id', resources.resource_id)
+
+            setViewContent(editContent)
+            setIsEditing(false)
+            loadResources()
+        } catch (error: any) {
+            alert('Error saving edits: ' + error.message)
+        }
+    }
+
+
 
     if (loading) {
         return (
@@ -305,84 +442,45 @@ export default function TopicResourcesPage() {
                                     <h2 className="text-xl font-bold text-gray-900">
                                         {viewContent.title || RESOURCE_TYPES.find(r => r.id === activeResource)?.label}
                                     </h2>
-                                    <button className="px-4 py-2 border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-50 flex items-center gap-2">
-                                        <Download className="w-4 h-4" />
-                                        Export
-                                    </button>
+                                    <div className="flex items-center gap-2">
+                                        {isEditing ? (
+                                            <>
+                                                <button onClick={() => setIsEditing(false)} className="px-3 py-1.5 text-sm font-medium border border-gray-300 rounded-lg hover:bg-gray-50">
+                                                    Cancel
+                                                </button>
+                                                <button onClick={saveEdits} className="px-3 py-1.5 text-sm font-medium bg-purple-600 text-white rounded-lg hover:bg-purple-700 flex items-center gap-1">
+                                                    <Check className="w-4 h-4" /> Save
+                                                </button>
+                                            </>
+                                        ) : (
+                                            <>
+                                                <button
+                                                    onClick={() => {
+                                                        setEditContent(JSON.parse(JSON.stringify(viewContent)))
+                                                        setIsEditing(true)
+                                                    }}
+                                                    className="px-3 py-1.5 text-sm font-medium border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-50 flex items-center gap-1"
+                                                >
+                                                    <Edit3 className="w-4 h-4" /> Edit
+                                                </button>
+
+                                                <button className="px-3 py-1.5 text-sm font-medium border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-50 flex items-center gap-1">
+                                                    <Download className="w-4 h-4" /> Export
+                                                </button>
+                                            </>
+                                        )}
+                                    </div>
                                 </div>
 
-                                <div className="prose max-w-none overflow-y-auto max-h-[600px]">
-                                    {/* Render content based on type */}
-                                    {viewContent.sections && (
-                                        <div className="space-y-6">
-                                            {viewContent.sections.map((section: any, idx: number) => (
-                                                <div key={idx} className="border-b pb-4">
-                                                    <h3 className="text-lg font-semibold text-gray-900">{section.heading}</h3>
-                                                    <p className="text-gray-700 mt-2 whitespace-pre-wrap">{section.content}</p>
-                                                    {section.duration_minutes && (
-                                                        <span className="text-xs text-gray-500">⏱ {section.duration_minutes} min</span>
-                                                    )}
-                                                </div>
-                                            ))}
+                                <div className="prose max-w-none overflow-y-auto max-h-[600px] pb-10">
+                                    {isEditing ? (
+                                        <div className="space-y-8">
+                                            {renderContent(editContent, [], true)}
                                         </div>
-                                    )}
-
-                                    {viewContent.key_concepts && (
-                                        <div className="mb-6">
-                                            <h3 className="text-lg font-semibold mb-3">Key Concepts</h3>
-                                            <ul className="list-disc list-inside space-y-1">
-                                                {viewContent.key_concepts.map((c: string, i: number) => (
-                                                    <li key={i}>{c}</li>
-                                                ))}
-                                            </ul>
+                                    ) : (
+                                        <div className="space-y-8">
+                                            {renderContent(viewContent, [], false)}
                                         </div>
-                                    )}
-
-                                    {viewContent.problems && (
-                                        <div className="space-y-4">
-                                            {viewContent.problems.map((p: any) => (
-                                                <div key={p.number} className="p-4 bg-gray-50 rounded-lg">
-                                                    <p className="font-medium">Q{p.number}. {p.question}</p>
-                                                    {p.options && (
-                                                        <div className="mt-2 space-y-1">
-                                                            {p.options.map((opt: string, i: number) => (
-                                                                <p key={i} className="text-gray-600">({String.fromCharCode(65 + i)}) {opt}</p>
-                                                            ))}
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            ))}
-                                        </div>
-                                    )}
-
-                                    {viewContent.must_remember && (
-                                        <div className="space-y-4">
-                                            <h3 className="text-lg font-semibold">Must Remember</h3>
-                                            <ul className="list-disc list-inside">
-                                                {viewContent.must_remember.map((m: string, i: number) => (
-                                                    <li key={i} className="font-medium">{m}</li>
-                                                ))}
-                                            </ul>
-                                        </div>
-                                    )}
-
-                                    {viewContent.formulas && (
-                                        <div className="space-y-3">
-                                            <h3 className="text-lg font-semibold">Formulas</h3>
-                                            {viewContent.formulas.map((f: any, i: number) => (
-                                                <div key={i} className="p-3 bg-blue-50 rounded-lg">
-                                                    <p className="font-mono text-lg">{f.formula}</p>
-                                                    <p className="text-sm text-gray-600">{f.name}</p>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    )}
-
-                                    {/* Fallback: Raw JSON for debugging */}
-                                    {!viewContent.sections && !viewContent.key_concepts && !viewContent.problems && !viewContent.must_remember && !viewContent.formulas && (
-                                        <pre className="text-xs bg-gray-50 p-4 rounded-lg overflow-x-auto">
-                                            {JSON.stringify(viewContent, null, 2)}
-                                        </pre>
                                     )}
                                 </div>
                             </div>

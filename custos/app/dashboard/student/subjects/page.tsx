@@ -194,14 +194,7 @@ export default function StudentSubjectsPage() {
                                         {/* Actions */}
                                         <div className="flex gap-3 mt-4">
                                             <button
-                                                onClick={() => router.push('/dashboard/manage/topics')}
-                                                className="px-4 py-2 bg-gradient-to-r from-purple-500 to-pink-600 text-white rounded-lg text-sm font-medium hover:opacity-90 flex items-center gap-2"
-                                            >
-                                                <Target className="w-4 h-4" />
-                                                Practice MCQs
-                                            </button>
-                                            <button
-                                                onClick={() => router.push('/dashboard/manage/topics')}
+                                                onClick={() => router.push('/dashboard/resources')}
                                                 className="px-4 py-2 bg-white/10 text-white rounded-lg text-sm font-medium hover:bg-white/20 flex items-center gap-2"
                                             >
                                                 <FileText className="w-4 h-4" />

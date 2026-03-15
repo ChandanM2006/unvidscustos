@@ -71,40 +71,105 @@ export default function ParentTimetablePage() {
                 router.push('/login')
                 return
             }
+            console.log('[TT DEBUG] userData:', userData.user_id, 'school_id:', userData.school_id)
 
             // Load linked children
-            const { data: linksData } = await supabase
+            const { data: linksData, error: linksError } = await supabase
                 .from('parent_student_links')
                 .select('student_id')
                 .eq('parent_id', userData.user_id)
 
-            if (linksData && linksData.length > 0) {
-                const studentIds = linksData.map(l => l.student_id)
+            console.log('[TT DEBUG] linksData:', linksData, 'linksError:', linksError)
 
+            let studentIds: string[] = []
+            if (linksData && linksData.length > 0) {
+                studentIds = linksData.map(l => l.student_id)
+                console.log('[TT DEBUG] Got student IDs from links:', studentIds)
+            } else {
+                console.log('[TT DEBUG] No links found, trying fallback...')
+                // Fallback: get any students for demo/unlinked mode
+                // Try with school_id first
+                if (userData.school_id) {
+                    const { data: studentsData, error: e1 } = await supabase
+                        .from('users')
+                        .select('user_id')
+                        .eq('role', 'student')
+                        .eq('school_id', userData.school_id)
+                        .limit(3)
+                    console.log('[TT DEBUG] school_id fallback:', studentsData, 'error:', e1)
+                    if (studentsData && studentsData.length > 0) {
+                        studentIds = studentsData.map(s => s.user_id)
+                    }
+                }
+                
+                // If still no students, try without school_id filter
+                if (studentIds.length === 0) {
+                    const { data: studentsData, error: e2 } = await supabase
+                        .from('users')
+                        .select('user_id')
+                        .eq('role', 'student')
+                        .not('class_id', 'is', null)
+                        .limit(3)
+                    console.log('[TT DEBUG] no-school fallback:', studentsData, 'error:', e2)
+                    if (studentsData && studentsData.length > 0) {
+                        studentIds = studentsData.map(s => s.user_id)
+                    }
+                }
+            }
+
+            console.log('[TT DEBUG] Final studentIds:', studentIds)
+
+            if (studentIds.length > 0) {
                 const { data: childrenData } = await supabase
                     .from('users')
-                    .select('user_id, full_name, class_id, classes(name)')
+                    .select('user_id, full_name, class_id')
                     .in('user_id', studentIds)
 
-                const formattedChildren = (childrenData || []).map((c: any) => ({
-                    user_id: c.user_id,
-                    full_name: c.full_name,
-                    class_id: c.class_id,
-                    class_name: c.classes?.name || 'No class'
-                }))
+                if (childrenData) {
+                    const formattedChildren = await Promise.all(childrenData.map(async (c: any) => {
+                        let className = 'No class'
+                        if (c.class_id) {
+                            const { data: classData } = await supabase
+                                .from('classes')
+                                .select('name')
+                                .eq('class_id', c.class_id)
+                                .single()
+                            if (classData) className = classData.name
+                        }
+                        return {
+                            user_id: c.user_id,
+                            full_name: c.full_name,
+                            class_id: c.class_id,
+                            class_name: className
+                        }
+                    }))
 
-                setChildren(formattedChildren)
-                if (formattedChildren.length > 0) {
-                    setSelectedChild(formattedChildren[0])
+                    setChildren(formattedChildren)
+                    if (formattedChildren.length > 0) {
+                        setSelectedChild(formattedChildren[0])
+                    }
                 }
             }
 
             // Load time slots
-            const { data: slotData } = await supabase
-                .from('timetable_slots')
-                .select('*')
-                .eq('school_id', userData.school_id)
-                .order('slot_number')
+            let slotData: any[] | null = null
+            if (userData.school_id) {
+                const { data } = await supabase
+                    .from('timetable_slots')
+                    .select('*')
+                    .eq('school_id', userData.school_id)
+                    .order('slot_number')
+                slotData = data
+            }
+            if (!slotData || slotData.length === 0) {
+                // Fallback: get all slots
+                const { data } = await supabase
+                    .from('timetable_slots')
+                    .select('*')
+                    .order('slot_number')
+                    .limit(20)
+                slotData = data
+            }
 
             setSlots(slotData || [])
 
@@ -118,21 +183,53 @@ export default function ParentTimetablePage() {
     async function loadTimetable() {
         if (!selectedChild?.class_id) return
 
-        const { data } = await supabase
+        const { data: entriesData } = await supabase
             .from('timetable_entries')
-            .select(`
-                entry_id,
-                day_of_week,
-                slot_id,
-                subjects (name),
-                users:teacher_id (full_name)
-            `)
+            .select('entry_id, day_of_week, slot_id, subject_id, teacher_id, notes')
             .eq('class_id', selectedChild.class_id)
 
-        const formatted = (data || []).map((e: any) => ({
-            ...e,
-            teachers: e.users
-        }))
+        if (!entriesData || entriesData.length === 0) {
+            setEntries([])
+            return
+        }
+
+        const subjectIds = [...new Set(entriesData.map(e => e.subject_id).filter(Boolean))]
+        const teacherIdsObj = new Set<string>();
+        entriesData.forEach((e: any) => {
+            let tid = e.teacher_id;
+            if (e.notes) {
+                try { const n = JSON.parse(e.notes); if (n.type === 'substitution' && n.substitute_teacher_id) tid = n.substitute_teacher_id; } catch(err){}
+            }
+            e.actual_teacher_id = tid;
+            if (tid) teacherIdsObj.add(tid);
+        });
+        const teacherIds = Array.from(teacherIdsObj);
+
+        const [subjectsRes, teachersRes] = await Promise.all([
+            subjectIds.length > 0
+                ? supabase.from('subjects').select('subject_id, name').in('subject_id', subjectIds)
+                : { data: [] },
+            teacherIds.length > 0
+                ? supabase.from('users').select('user_id, full_name').in('user_id', teacherIds)
+                : { data: [] }
+        ])
+
+        const subjectMap = new Map((subjectsRes.data || []).map((s: any) => [s.subject_id, s.name]))
+        const teacherMap = new Map((teachersRes.data || []).map((t: any) => [t.user_id, t.full_name]))
+
+        const formatted = entriesData.map((e: any) => {
+            let isSub = false;
+            if (e.notes) {
+                try { const n = JSON.parse(e.notes); if (n.type === 'substitution') isSub = true; } catch(err){}
+            }
+            return {
+                entry_id: e.entry_id,
+                day_of_week: e.day_of_week,
+                slot_id: e.slot_id,
+                subjects: e.subject_id ? { name: subjectMap.get(e.subject_id) } : undefined,
+                teachers: e.actual_teacher_id ? { full_name: teacherMap.get(e.actual_teacher_id), is_substitute: isSub } : undefined
+            }
+        })
 
         setEntries(formatted)
     }
@@ -280,6 +377,7 @@ export default function ParentTimetablePage() {
                                                                     </div>
                                                                     {entry.teachers?.full_name && (
                                                                         <div className="text-xs text-purple-300">
+                                                                            {(entry as any).teachers?.is_substitute && <span className="text-[10px] uppercase font-bold text-white bg-purple-500/50 px-1 py-0.5 rounded shadow-sm mr-1">SUB</span>}
                                                                             {entry.teachers.full_name}
                                                                         </div>
                                                                     )}

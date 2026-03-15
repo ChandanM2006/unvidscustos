@@ -23,13 +23,12 @@ export async function getWeekCompletion(studentId: string): Promise<{
     const thisWeek = getCurrentWeekRange()
 
     const { data: completed } = await supabase
-        .from('assessment_phases')
-        .select('scheduled_date')
+        .from('brain_daily_responses')
+        .select('mcq_completed, brain_daily_work!inner(work_date)')
         .eq('student_id', studentId)
-        .eq('phase_type', 'daily')
-        .eq('status', 'completed')
-        .gte('scheduled_date', thisWeek.start)
-        .lte('scheduled_date', thisWeek.end)
+        .eq('mcq_completed', true)
+        .gte('brain_daily_work.work_date', thisWeek.start)
+        .lte('brain_daily_work.work_date', thisWeek.end)
 
     // School days this week (Mon-Fri = 5, unless today is earlier)
     const now = new Date()
@@ -100,30 +99,31 @@ export interface DailyActivity {
 }
 
 export async function getLast30DaysActivity(studentId: string): Promise<DailyActivity[]> {
-    // Get all phases from last 30 days in a single query
+    // Get all completed daily work from last 30 days in a single query
     const thirtyDaysAgo = new Date()
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 29)
     const startDate = thirtyDaysAgo.toISOString().split('T')[0]
 
     const { data: phases } = await supabase
-        .from('assessment_phases')
-        .select('scheduled_date, time_taken_seconds, total_questions, status, phase_type')
+        .from('brain_daily_responses')
+        .select('mcq_completed, mcq_time_seconds, mcq_total, brain_daily_work!inner(work_date)')
         .eq('student_id', studentId)
-        .gte('scheduled_date', startDate)
-        .order('scheduled_date', { ascending: true })
+        .gte('brain_daily_work.work_date', startDate)
+        .order('brain_daily_work(work_date)', { ascending: true })
 
     // Build a map of date → stats
     const dateMap: Record<string, { minutes: number; questions: number; completed: boolean }> = {}
 
     for (const phase of (phases || [])) {
-        const key = phase.scheduled_date
+        const key = (phase.brain_daily_work as any)?.work_date
+        if (!key) continue
         if (!dateMap[key]) {
             dateMap[key] = { minutes: 0, questions: 0, completed: false }
         }
-        if (phase.status === 'completed') {
+        if (phase.mcq_completed) {
             dateMap[key].completed = true
-            dateMap[key].minutes += (phase.time_taken_seconds || 0) / 60
-            dateMap[key].questions += phase.total_questions || 0
+            dateMap[key].minutes += (phase.mcq_time_seconds || 0) / 60
+            dateMap[key].questions += phase.mcq_total || 0
         }
     }
 
@@ -179,17 +179,17 @@ export async function getTimeSpentStats(studentId: string): Promise<{
     const monthStartStr = monthStart.toISOString().split('T')[0]
 
     const { data } = await supabase
-        .from('assessment_phases')
-        .select('time_taken_seconds, total_questions')
+        .from('brain_daily_responses')
+        .select('mcq_time_seconds, mcq_total, brain_daily_work!inner(work_date)')
         .eq('student_id', studentId)
-        .eq('status', 'completed')
-        .gte('scheduled_date', monthStartStr)
+        .eq('mcq_completed', true)
+        .gte('brain_daily_work.work_date', monthStartStr)
 
-    const totalSeconds = data?.reduce((sum, p) => sum + (p.time_taken_seconds || 0), 0) || 0
-    const totalQuestions = data?.reduce((sum, p) => sum + (p.total_questions || 0), 0) || 0
+    const totalSeconds = data?.reduce((sum, p) => sum + (p.mcq_time_seconds || 0), 0) || 0
+    const totalQuestions = data?.reduce((sum, p) => sum + (p.mcq_total || 0), 0) || 0
     const totalMinutes = Math.round(totalSeconds / 60)
     const dayOfMonth = new Date().getDate()
-    const avgDaily = Math.round(totalMinutes / dayOfMonth)
+    const avgDaily = Math.round(totalMinutes / (dayOfMonth || 1))
 
     return {
         total_minutes_month: totalMinutes,

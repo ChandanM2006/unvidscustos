@@ -146,7 +146,7 @@ export default function StudentMCQPage() {
                     <div className="bg-white/10 backdrop-blur-lg rounded-2xl border border-white/10 p-12 text-center">
                         <CheckCircle className="w-20 h-20 mx-auto mb-4 text-green-400" />
                         <h3 className="text-2xl font-bold text-white mb-2">Practice Complete!</h3>
-                        <p className="text-5xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-green-400 to-emerald-400 my-4">
+                        <p className="text-5xl font-bold text-green-400 my-4">
                             {score} / {mcqs.length}
                         </p>
                         <p className="text-green-300/70 mb-6">

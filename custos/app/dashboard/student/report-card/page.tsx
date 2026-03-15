@@ -91,61 +91,72 @@ export default function StudentReportCardPage() {
                 setClassName(`${cls?.name || ''} ${sec?.name || ''}`.trim())
             }
 
-            // Load student marks with exam and subject info
-            const { data: marksData } = await supabase
-                .from('student_marks')
-                .select(`
-                    mark_id, marks_obtained, max_marks, grade,
-                    exams (exam_id, name, exam_type_id, exam_types (name)),
-                    subjects (name)
-                `)
-                .eq('student_id', userData.user_id)
-                .order('entered_at', { ascending: false })
+            // Load only published (completed) exams
+            const { data: publishedExams } = await supabase
+                .from('exams')
+                .select('exam_id')
+                .eq('status', 'completed')
 
-            if (marksData && marksData.length > 0) {
-                // Group marks by exam
-                const examMap = new Map<string, ExamResult>()
-                for (const mark of marksData as any[]) {
-                    const exam = mark.exams
-                    if (!exam) continue
-                    const examId = exam.exam_id
-                    if (!examMap.has(examId)) {
-                        examMap.set(examId, {
-                            exam_id: examId,
-                            exam_name: exam.name,
-                            exam_type: exam.exam_types?.name || 'Exam',
-                            marks: [],
-                            total_obtained: 0,
-                            total_max: 0,
-                            percentage: 0,
-                            overall_grade: ''
-                        })
+            const publishedExamIds = (publishedExams || []).map((e: any) => e.exam_id)
+
+            if (publishedExamIds.length > 0) {
+                // Load student marks only for published exams
+                const { data: marksData } = await supabase
+                    .from('student_marks')
+                    .select(`
+                        mark_id, marks_obtained, max_marks, grade,
+                        exams (exam_id, name, exam_type_id, exam_types (name)),
+                        subjects (name)
+                    `)
+                    .eq('student_id', userData.user_id)
+                    .in('exam_id', publishedExamIds)
+                    .order('entered_at', { ascending: false })
+
+                if (marksData && marksData.length > 0) {
+                    // Group marks by exam
+                    const examMap = new Map<string, ExamResult>()
+                    for (const mark of marksData as any[]) {
+                        const exam = mark.exams
+                        if (!exam) continue
+                        const examId = exam.exam_id
+                        if (!examMap.has(examId)) {
+                            examMap.set(examId, {
+                                exam_id: examId,
+                                exam_name: exam.name,
+                                exam_type: exam.exam_types?.name || 'Exam',
+                                marks: [],
+                                total_obtained: 0,
+                                total_max: 0,
+                                percentage: 0,
+                                overall_grade: ''
+                            })
+                        }
+                        const result = examMap.get(examId)!
+                        const subjectMark: SubjectMark = {
+                            subject_name: mark.subjects?.name || 'Unknown',
+                            marks_obtained: mark.marks_obtained,
+                            max_marks: mark.max_marks,
+                            grade: mark.grade || '',
+                            percentage: mark.max_marks > 0 ? Math.round((mark.marks_obtained / mark.max_marks) * 100) : 0
+                        }
+                        result.marks.push(subjectMark)
+                        result.total_obtained += mark.marks_obtained
+                        result.total_max += mark.max_marks
                     }
-                    const result = examMap.get(examId)!
-                    const subjectMark: SubjectMark = {
-                        subject_name: mark.subjects?.name || 'Unknown',
-                        marks_obtained: mark.marks_obtained,
-                        max_marks: mark.max_marks,
-                        grade: mark.grade || '',
-                        percentage: mark.max_marks > 0 ? Math.round((mark.marks_obtained / mark.max_marks) * 100) : 0
+
+                    // Calculate percentages and grades
+                    for (const result of examMap.values()) {
+                        result.percentage = result.total_max > 0
+                            ? Math.round((result.total_obtained / result.total_max) * 100)
+                            : 0
+                        result.overall_grade = getGrade(result.percentage)
+                        result.marks.sort((a, b) => a.subject_name.localeCompare(b.subject_name))
                     }
-                    result.marks.push(subjectMark)
-                    result.total_obtained += mark.marks_obtained
-                    result.total_max += mark.max_marks
-                }
 
-                // Calculate percentages and grades
-                for (const result of examMap.values()) {
-                    result.percentage = result.total_max > 0
-                        ? Math.round((result.total_obtained / result.total_max) * 100)
-                        : 0
-                    result.overall_grade = getGrade(result.percentage)
-                    result.marks.sort((a, b) => a.subject_name.localeCompare(b.subject_name))
+                    const results = Array.from(examMap.values())
+                    setExamResults(results)
+                    if (results.length > 0) setSelectedExam(results[0].exam_id)
                 }
-
-                const results = Array.from(examMap.values())
-                setExamResults(results)
-                if (results.length > 0) setSelectedExam(results[0].exam_id)
             }
 
             // Load published report card
@@ -356,9 +367,9 @@ export default function StudentReportCardPage() {
                 ) : (
                     <div className="bg-white/10 backdrop-blur-lg rounded-2xl border border-white/10 p-12 text-center">
                         <BarChart3 className="w-16 h-16 mx-auto mb-4 text-green-300/30" />
-                        <h3 className="text-xl font-bold mb-2">No Results Yet</h3>
+                        <h3 className="text-xl font-bold mb-2">No Published Results</h3>
                         <p className="text-green-300/70">
-                            Your exam results will appear here once your teachers enter them.
+                            Your exam results will appear here once the school publishes them.
                         </p>
                     </div>
                 )}

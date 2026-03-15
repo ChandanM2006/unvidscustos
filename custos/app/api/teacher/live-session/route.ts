@@ -47,6 +47,7 @@ export async function POST(req: NextRequest) {
             section_id,
             subject_id,
             slot_id,
+            slot_start_time,
             plan_id,
             scheduled_topics,
             pending_topics
@@ -76,6 +77,29 @@ export async function POST(req: NextRequest) {
             }
         }
 
+        // Calculate late minutes
+        let lateMinutes = 0
+        if (slot_start_time) {
+            // slot_start_time format: "HH:MM:SS" or "HH:MM"
+            const [sh, sm] = slot_start_time.split(':').map(Number)
+
+            // Get current time in local timezone of the user (or assume server time for now)
+            // It's safer to use the UTC time if we don't know the exact zone, but server usually runs in UTC.
+            // However, we can just use the provided time without offset.
+            // Let's use the Date object but convert explicitly assuming the same timezone as the user.
+            // Better yet, just use standard JS Date which will take the server's local time (or if set up, IST).
+            const now = new Date()
+
+            const currentTotalMinutes = now.getHours() * 60 + now.getMinutes()
+            const startTotalMinutes = sh * 60 + sm
+            const diff = currentTotalMinutes - startTotalMinutes
+
+            // Only consider it late if it's more than 0 minutes late
+            if (diff > 0) {
+                lateMinutes = diff
+            }
+        }
+
         // Create or update session
         const sessionData = {
             teacher_id,
@@ -90,7 +114,8 @@ export async function POST(req: NextRequest) {
             pending_topics: pending_topics || [],
             covered_topics: [],
             started_at: new Date().toISOString(),
-            status: 'in_progress'
+            status: 'in_progress',
+            late_minutes: lateMinutes,
         }
 
         let result
@@ -104,6 +129,7 @@ export async function POST(req: NextRequest) {
                     ended_at: null,
                     covered_topics: [],
                     pending_topics: pending_topics || [],
+                    late_minutes: lateMinutes,
                 })
                 .eq('session_id', existing.session_id)
                 .select()

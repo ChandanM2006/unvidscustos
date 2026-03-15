@@ -27,6 +27,7 @@ interface TimetableEntry {
     day_of_week: number
     slot_id: string
     room_number?: string
+    notes?: string
     subjects?: { name: string; code?: string }
     users?: { full_name: string }
 }
@@ -90,7 +91,7 @@ export default function TimetablePage() {
 
     // Edit mode
     const [editingCell, setEditingCell] = useState<{ day: number; slotId: string } | null>(null)
-    const [editForm, setEditForm] = useState({ subject_id: '', teacher_id: '', room_number: '' })
+    const [editForm, setEditForm] = useState({ subject_id: '', teacher_id: '', substitute_teacher_id: '', room_number: '' })
     const [conflictError, setConflictError] = useState<string | null>(null)
 
     // ── Conflict detection ──
@@ -193,7 +194,7 @@ export default function TimetablePage() {
             // Fetch ALL entries across the school
             const { data: allEntries, error } = await supabase
                 .from('timetable_entries')
-                .select('entry_id, class_id, section_id, subject_id, teacher_id, day_of_week, slot_id')
+                .select('entry_id, class_id, section_id, subject_id, teacher_id, day_of_week, slot_id, notes')
 
             if (error || !allEntries) {
                 setConflicts([])
@@ -229,10 +230,14 @@ export default function TimetablePage() {
             // Group by teacher + day + slot
             const groups = new Map<string, TimetableEntry[]>()
             for (const entry of allEntries) {
-                if (!entry.teacher_id) continue
-                const key = `${entry.teacher_id}_${entry.day_of_week}_${entry.slot_id}`
+                let actualTeacherId = entry.teacher_id;
+                if (entry.notes) {
+                    try { const n = JSON.parse(entry.notes); if (n.type === 'substitution' && n.substitute_teacher_id) actualTeacherId = n.substitute_teacher_id; } catch(e){}
+                }
+                if (!actualTeacherId) continue
+                const key = `${actualTeacherId}_${entry.day_of_week}_${entry.slot_id}`
                 if (!groups.has(key)) groups.set(key, [])
-                groups.get(key)!.push(entry as TimetableEntry)
+                groups.get(key)!.push({ ...entry, effective_teacher_id: actualTeacherId } as any)
             }
 
             // Find conflicts (groups with 2+ entries)
@@ -242,8 +247,8 @@ export default function TimetablePage() {
                 const first = groupEntries[0]
                 const slotObj = slotMap.get(first.slot_id)
                 conflictGroups.push({
-                    teacher_id: first.teacher_id,
-                    teacher_name: teacherMap.get(first.teacher_id) || 'Unknown',
+                    teacher_id: (first as any).effective_teacher_id,
+                    teacher_name: teacherMap.get((first as any).effective_teacher_id) || 'Unknown',
                     day_of_week: first.day_of_week,
                     slot_id: first.slot_id,
                     slot_name: slotObj?.slot_name || 'Unknown',
@@ -395,12 +400,17 @@ export default function TimetablePage() {
 
             // Enrich entries with subject and teacher names from loaded state
             const enriched = (data || []).map((entry: any) => {
+                let actualTeacherId = entry.teacher_id;
+                let isSub = false;
+                if (entry.notes) {
+                    try { const n = JSON.parse(entry.notes); if (n.type === 'substitution' && n.substitute_teacher_id) { actualTeacherId = n.substitute_teacher_id; isSub = true; } } catch(e){}
+                }
                 const sub = subjects.find((s: any) => s.subject_id === entry.subject_id)
-                const teacher = teachers.find((t: any) => t.user_id === entry.teacher_id)
+                const teacher = teachers.find((t: any) => t.user_id === actualTeacherId)
                 return {
                     ...entry,
                     subjects: sub ? { name: sub.name, code: sub.code } : null,
-                    users: teacher ? { full_name: teacher.full_name } : null
+                    users: teacher ? { full_name: teacher.full_name, is_substitute: isSub } : null
                 }
             })
             setEntries(enriched)
@@ -420,9 +430,13 @@ export default function TimetablePage() {
     // ── Check if a specific cell has a teacher conflict ──
     function getCellConflict(day: number, slotId: string): ConflictGroup | undefined {
         const entry = getEntry(day, slotId)
-        if (!entry?.teacher_id) return undefined
+        let tId = entry?.teacher_id;
+        if (entry?.notes) {
+            try { const n = JSON.parse(entry.notes); if (n.type === 'substitution' && n.substitute_teacher_id) tId = n.substitute_teacher_id; } catch(e){}
+        }
+        if (!tId) return undefined
         return conflicts.find(c =>
-            c.teacher_id === entry.teacher_id &&
+            c.teacher_id === tId &&
             c.day_of_week === day &&
             c.slot_id === slotId
         )
@@ -430,9 +444,14 @@ export default function TimetablePage() {
 
     function startEdit(day: number, slotId: string) {
         const existing = getEntry(day, slotId)
+        let subId = ''
+        if (existing?.notes) {
+            try { const n = JSON.parse(existing.notes); if (n.type === 'substitution' && n.substitute_teacher_id) subId = n.substitute_teacher_id; } catch(e) {}
+        }
         setEditForm({
             subject_id: existing?.subject_id || '',
             teacher_id: existing?.teacher_id || '',
+            substitute_teacher_id: subId,
             room_number: existing?.room_number || ''
         })
         setConflictError(null)
@@ -449,25 +468,30 @@ export default function TimetablePage() {
             const existingEntry = getEntry(editingCell.day, editingCell.slotId)
 
             if (editForm.subject_id) {
+                let effectiveTeacherId = editForm.substitute_teacher_id || editForm.teacher_id;
                 // ── Teacher conflict check ──
-                if (editForm.teacher_id) {
-                    const { data: conflicts } = await supabase
+                if (effectiveTeacherId) {
+                    const { data: allSlotEntries } = await supabase
                         .from('timetable_entries')
-                        .select('entry_id, class_id, section_id, classes:class_id(name), sections:section_id(name)')
-                        .eq('teacher_id', editForm.teacher_id)
+                        .select('entry_id, class_id, section_id, notes, teacher_id, classes:class_id(name), sections:section_id(name)')
                         .eq('day_of_week', editingCell.day)
                         .eq('slot_id', editingCell.slotId)
 
                     // Filter out the current entry being edited (same class+section)
-                    const otherConflicts = (conflicts || []).filter((c: any) =>
-                        !(c.class_id === selectedClassId && c.section_id === selectedSectionId)
-                    )
+                    const otherConflicts = (allSlotEntries || []).filter((c: any) => {
+                        if (c.class_id === selectedClassId && c.section_id === selectedSectionId) return false;
+                        let cid = c.teacher_id;
+                        if (c.notes) {
+                            try { const n = JSON.parse(c.notes); if (n.type === 'substitution' && n.substitute_teacher_id) cid = n.substitute_teacher_id; } catch(e){}
+                        }
+                        return cid === effectiveTeacherId;
+                    })
 
                     if (otherConflicts.length > 0) {
                         const conflict = otherConflicts[0] as any
                         const className = conflict.classes?.name || 'another class'
                         const sectionName = conflict.sections?.name || ''
-                        const teacherName = teachers.find(t => t.user_id === editForm.teacher_id)?.full_name || 'This teacher'
+                        const teacherName = teachers.find(t => t.user_id === effectiveTeacherId)?.full_name || 'This teacher'
                         const slotObj = slots.find(s => s.slot_id === editingCell.slotId)
                         const slotLabel = slotObj ? `${slotObj.slot_name} (${formatTime(slotObj.start_time)} - ${formatTime(slotObj.end_time)})` : 'this period'
 
@@ -480,6 +504,9 @@ export default function TimetablePage() {
                 }
 
                 // Upsert entry
+                const notesObj = editForm.substitute_teacher_id 
+                    ? { type: 'substitution', substitute_teacher_id: editForm.substitute_teacher_id } 
+                    : null;
                 const entryData = {
                     class_id: selectedClassId,
                     section_id: selectedSectionId,
@@ -487,7 +514,8 @@ export default function TimetablePage() {
                     slot_id: editingCell.slotId,
                     subject_id: editForm.subject_id || null,
                     teacher_id: editForm.teacher_id || null,
-                    room_number: editForm.room_number || null
+                    room_number: editForm.room_number || null,
+                    notes: notesObj ? JSON.stringify(notesObj) : null
                 }
 
                 if (existingEntry) {
@@ -830,27 +858,46 @@ export default function TimetablePage() {
                                                 return (
                                                     <td key={day} className="p-2 border-r">
                                                         {isEditing ? (
-                                                            <div className="space-y-2 p-2 bg-orange-50 rounded-lg">
-                                                                <select
-                                                                    value={editForm.subject_id}
-                                                                    onChange={(e) => setEditForm(f => ({ ...f, subject_id: e.target.value }))}
-                                                                    className="w-full p-2 border rounded text-sm text-gray-900"
-                                                                >
-                                                                    <option value="">No Subject</option>
-                                                                    {subjects.map(s => (
-                                                                        <option key={s.subject_id} value={s.subject_id}>{s.name}</option>
-                                                                    ))}
-                                                                </select>
-                                                                <select
-                                                                    value={editForm.teacher_id}
-                                                                    onChange={(e) => setEditForm(f => ({ ...f, teacher_id: e.target.value }))}
-                                                                    className="w-full p-2 border rounded text-sm text-gray-900"
-                                                                >
-                                                                    <option value="">No Teacher</option>
-                                                                    {teachers.map(t => (
-                                                                        <option key={t.user_id} value={t.user_id}>{t.full_name}</option>
-                                                                    ))}
-                                                                </select>
+                                                            <div className="space-y-1 p-2 bg-orange-50 rounded-lg">
+                                                                <div className="mb-2">
+                                                                    <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1 block">Subject</label>
+                                                                    <select
+                                                                        value={editForm.subject_id}
+                                                                        onChange={(e) => setEditForm(f => ({ ...f, subject_id: e.target.value }))}
+                                                                        className="w-full p-1.5 border border-orange-200 rounded text-sm text-gray-900 focus:ring-1 focus:ring-orange-500 transition-shadow"
+                                                                    >
+                                                                        <option value="">No Subject</option>
+                                                                        {subjects.map(s => (
+                                                                            <option key={s.subject_id} value={s.subject_id}>{s.name}</option>
+                                                                        ))}
+                                                                    </select>
+                                                                </div>
+                                                                <div className="mb-2">
+                                                                    <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1 block">Primary Teacher</label>
+                                                                    <select
+                                                                        value={editForm.teacher_id}
+                                                                        onChange={(e) => setEditForm(f => ({ ...f, teacher_id: e.target.value }))}
+                                                                        className="w-full p-1.5 border border-orange-200 rounded text-sm text-gray-900 focus:ring-1 focus:ring-orange-500 transition-shadow"
+                                                                    >
+                                                                        <option value="">No Teacher</option>
+                                                                        {teachers.map(t => (
+                                                                            <option key={t.user_id} value={t.user_id}>{t.full_name}</option>
+                                                                        ))}
+                                                                    </select>
+                                                                </div>
+                                                                <div className="mb-3 pt-2 border-t border-orange-200/60">
+                                                                    <label className="text-[10px] font-bold text-purple-600 uppercase tracking-wider mb-1 flex items-center gap-1"><Users className="w-3 h-3"/> Override: Substitute</label>
+                                                                    <select
+                                                                        value={editForm.substitute_teacher_id}
+                                                                        onChange={(e) => setEditForm(f => ({ ...f, substitute_teacher_id: e.target.value }))}
+                                                                        className="w-full p-1.5 border border-purple-200 bg-purple-50 rounded text-sm text-purple-900 focus:ring-1 focus:ring-purple-500 transition-shadow"
+                                                                    >
+                                                                        <option value="">No Substitution</option>
+                                                                        {teachers.map(t => (
+                                                                            <option key={t.user_id} value={t.user_id}>{t.full_name}</option>
+                                                                        ))}
+                                                                    </select>
+                                                                </div>
                                                                 {/* Conflict error message */}
                                                                 {conflictError && (
                                                                     <div className="flex items-start gap-1.5 p-2 bg-red-50 border border-red-200 rounded-lg">
@@ -890,6 +937,7 @@ export default function TimetablePage() {
                                                                             {entry.subjects?.name || 'Subject'}
                                                                         </div>
                                                                         <div className={`text-xs ${cellConflict ? 'text-red-600' : 'text-orange-600'}`}>
+                                                                            {(entry as any).users?.is_substitute && <span className="text-[10px] uppercase font-bold text-purple-600 bg-purple-100 px-1 py-0.5 rounded shadow-sm mr-1">SUB</span>}
                                                                             {entry.users?.full_name || 'No teacher'}
                                                                         </div>
                                                                         {/* Conflict badge on cell */}

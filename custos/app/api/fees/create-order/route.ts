@@ -2,10 +2,20 @@ import { NextRequest, NextResponse } from 'next/server'
 import Razorpay from 'razorpay'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 
-const razorpay = new Razorpay({
-    key_id: process.env.RAZORPAY_KEY_ID!,
-    key_secret: process.env.RAZORPAY_KEY_SECRET!,
-})
+// Lazy-initialize Razorpay to avoid crashes at build time
+let razorpay: Razorpay | null = null
+function getRazorpay() {
+    if (!razorpay) {
+        if (!process.env.RAZORPAY_KEY_ID || !process.env.RAZORPAY_KEY_SECRET) {
+            throw new Error('Razorpay credentials not configured')
+        }
+        razorpay = new Razorpay({
+            key_id: process.env.RAZORPAY_KEY_ID,
+            key_secret: process.env.RAZORPAY_KEY_SECRET,
+        })
+    }
+    return razorpay
+}
 
 export async function POST(request: NextRequest) {
     try {
@@ -44,7 +54,7 @@ export async function POST(request: NextRequest) {
         const receipt = `CUSTOS_${Date.now()}_${Math.random().toString(36).substring(7)}`
 
         // Create Razorpay order (amount in paise - multiply by 100)
-        const order = await razorpay.orders.create({
+        const order = await getRazorpay().orders.create({
             amount: Math.round(totalAmount * 100),
             currency: 'INR',
             receipt: receipt,

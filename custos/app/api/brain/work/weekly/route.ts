@@ -99,51 +99,38 @@ export async function POST(request: NextRequest) {
             class_id,
             section_id,
             subject_id,
-            week_start,
-            week_end,
+            topic_ids, // array of topic UUIDs that have completed daily work
+            work_label, // custom title
             teacher_id,
             total_marks = 40,
             question_count = 15,
         } = body
 
-        if (!class_id || !subject_id || !week_start || !week_end) {
+        if (!class_id || !subject_id || !topic_ids || topic_ids.length === 0) {
             return NextResponse.json(
-                { error: 'class_id, subject_id, week_start, and week_end required' },
+                { error: 'class_id, subject_id, and topic_ids are required' },
                 { status: 400 }
             )
         }
 
-        // Check if already exists
-        const { data: existing } = await supabase
-            .from('brain_weekly_work')
-            .select('work_id')
-            .eq('class_id', class_id)
-            .eq('subject_id', subject_id)
-            .eq('week_start', week_start)
-            .maybeSingle()
 
-        if (existing) {
-            await supabase.from('brain_weekly_work').delete().eq('work_id', existing.work_id)
-        }
 
-        // ─── Step 1: Collect class-wide daily work data ───
+        // ─── Step 1: Collect daily work data ONLY for the selected topics ───
         const { data: dailyWorks } = await supabase
             .from('brain_daily_work')
             .select('work_id, topic_id, mcq_questions, subject_id')
             .eq('class_id', class_id)
             .eq('subject_id', subject_id)
-            .gte('work_date', week_start)
-            .lte('work_date', week_end)
+            .in('topic_id', topic_ids)
             .in('status', ['published', 'completed'])
 
-        // Get topics covered
-        const topicIds = [...new Set((dailyWorks || []).map(d => d.topic_id).filter(Boolean))]
+        // Ensure we load the topic data for the selected topics
         let topicData: any[] = []
-        if (topicIds.length > 0) {
+        if (topic_ids.length > 0) {
             const { data } = await supabase
                 .from('lesson_topics')
                 .select('topic_id, topic_title, difficulty_level, learning_objectives, content')
-                .in('topic_id', topicIds)
+                .in('topic_id', topic_ids)
             topicData = data || []
         }
 
@@ -223,8 +210,9 @@ export async function POST(request: NextRequest) {
         const subjectName = subject?.name || 'Unknown'
         const gradeLevel = classInfo?.grade_level || 9
 
-        // Week label
-        const weekLabel = `Week of ${formatDate(week_start)} – ${formatDate(week_end)}`
+        // Label for the generated work
+        const today = new Date().toISOString()
+        const finalLabel = work_label || `Weekly Test (${new Date().toLocaleDateString()})`
 
         // ─── Step 4: Generate questions via OpenAI ───
         const questions = await generateWeeklyQuestionsWithOpenAI(
@@ -255,9 +243,9 @@ export async function POST(request: NextRequest) {
                 class_id,
                 section_id: section_id || null,
                 subject_id,
-                week_start,
-                week_end,
-                week_label: weekLabel,
+                week_start: today.split('T')[0], // Give it a valid date but this acts merely as creation date
+                week_end: today.split('T')[0],
+                week_label: finalLabel,
                 topics_covered: topicsCovered,
                 class_analysis: classAnalysis,
                 questions,

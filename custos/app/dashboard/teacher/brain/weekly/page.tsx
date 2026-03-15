@@ -39,10 +39,13 @@ export default function TeacherWeeklyWorkPage() {
     const [teacherId, setTeacherId] = useState('')
     const [classes, setClasses] = useState<ClassOption[]>([])
     const [subjects, setSubjects] = useState<SubjectOption[]>([])
+    const [chapters, setChapters] = useState<any[]>([])
     const [selectedClassId, setSelectedClassId] = useState('')
     const [selectedSubjectId, setSelectedSubjectId] = useState('')
-    const [weekStart, setWeekStart] = useState('')
-    const [weekEnd, setWeekEnd] = useState('')
+    const [selectedDocId, setSelectedDocId] = useState('')
+    const [completedTopics, setCompletedTopics] = useState<any[]>([])
+    const [selectedTopicIds, setSelectedTopicIds] = useState<string[]>([])
+    const [workLabel, setWorkLabel] = useState('')
 
     const [weeklyWork, setWeeklyWork] = useState<WeeklyWork | null>(null)
     const [editingQId, setEditingQId] = useState<string | null>(null)
@@ -51,21 +54,84 @@ export default function TeacherWeeklyWorkPage() {
     const [expandedQ, setExpandedQ] = useState<string | null>(null)
     const [pastWorks, setPastWorks] = useState<any[]>([])
 
-    useEffect(() => {
-        // Default to current week (Mon-Sat)
-        const now = new Date()
-        const day = now.getDay()
-        const mon = new Date(now)
-        mon.setDate(now.getDate() - (day === 0 ? 6 : day - 1))
-        const sat = new Date(mon)
-        sat.setDate(mon.getDate() + 5)
-        setWeekStart(mon.toISOString().split('T')[0])
-        setWeekEnd(sat.toISOString().split('T')[0])
-        loadTeacherData()
-    }, [])
+    useEffect(() => { loadTeacherData() }, [])
 
-    useEffect(() => { if (selectedClassId && teacherId) loadSubjects() }, [selectedClassId, teacherId])
-    useEffect(() => { if (selectedClassId && selectedSubjectId && weekStart) loadExistingWork() }, [selectedClassId, selectedSubjectId, weekStart])
+    useEffect(() => { 
+        if (selectedClassId && teacherId) {
+            loadSubjects()
+            setWeeklyWork(null)
+            setCompletedTopics([])
+            setSelectedTopicIds([])
+        } 
+    }, [selectedClassId, teacherId])
+
+    useEffect(() => {
+        if (selectedSubjectId && selectedClassId) {
+            loadChapters()
+        } else {
+            setChapters([])
+            setSelectedDocId('')
+        }
+    }, [selectedSubjectId, selectedClassId])
+
+    useEffect(() => { 
+        if (selectedClassId && selectedSubjectId && selectedDocId) {
+            loadCompletedTopics()
+            loadExistingWork()
+        } 
+    }, [selectedClassId, selectedSubjectId, selectedDocId])
+
+    async function loadChapters() {
+        const classInfo = classes.find(c => c.class_id === selectedClassId)
+        const gradeLevel = classInfo?.grade_level || 9
+
+        const { data } = await supabase
+            .from('syllabus_documents')
+            .select('document_id, chapter_title, chapter_number')
+            .eq('subject_id', selectedSubjectId)
+            .eq('grade_level', gradeLevel)
+            .order('chapter_number')
+
+        setChapters(data || [])
+        if (data && data.length > 0) {
+            setSelectedDocId(data[0].document_id)
+        } else {
+            setSelectedDocId('')
+        }
+    }
+
+    async function loadCompletedTopics() {
+        if (!selectedClassId || !selectedSubjectId || !selectedDocId) return
+        try {
+            const { data: dailyWorks } = await supabase
+                .from('brain_daily_work')
+                .select('mcq_questions, topic_id')
+                .eq('class_id', selectedClassId)
+                .eq('subject_id', selectedSubjectId)
+                .eq('status', 'completed')
+                
+            const completedTopicIds = new Set<string>()
+            dailyWorks?.forEach(dw => {
+                if (dw.topic_id) completedTopicIds.add(dw.topic_id);
+                (dw.mcq_questions || []).forEach((q: any) => {
+                    if (q.topic_id) completedTopicIds.add(q.topic_id)
+                })
+            })
+
+            if (completedTopicIds.size > 0) {
+                const { data: topics } = await supabase
+                    .from('lesson_topics')
+                    .select('topic_id, topic_title')
+                    .eq('document_id', selectedDocId)
+                    .in('topic_id', Array.from(completedTopicIds))
+                setCompletedTopics(topics || [])
+                setSelectedTopicIds(topics?.map(t => t.topic_id) || [])
+            } else {
+                setCompletedTopics([])
+                setSelectedTopicIds([])
+            }
+        } catch (e) { console.error(e) }
+    }
 
     async function loadTeacherData() {
         try {
@@ -95,26 +161,36 @@ export default function TeacherWeeklyWorkPage() {
     }
 
     async function loadExistingWork() {
-        if (!selectedClassId || !selectedSubjectId || !weekStart) return
+        if (!selectedClassId || !selectedSubjectId) return
         try {
-            const params = new URLSearchParams({ class_id: selectedClassId, subject_id: selectedSubjectId, week_start: weekStart })
+            const params = new URLSearchParams({ class_id: selectedClassId, subject_id: selectedSubjectId })
             const res = await fetch(`/api/brain/work/weekly?${params}`)
             const data = await res.json()
             const works = data.works || []
-            const match = works.find((w: any) => w.week_start === weekStart)
-            setWeeklyWork(match || null)
-            setPastWorks(works.filter((w: any) => w.week_start !== weekStart).slice(0, 5))
+            // If we want to show the latest generated work by default:
+            if (works.length > 0 && works[0].status === 'generated') {
+                setWeeklyWork(works[0])
+            } else {
+                setWeeklyWork(null)
+            }
+            setPastWorks(works)
             setHasEdits(false)
         } catch (e) { console.error(e) }
     }
 
     async function handleGenerate() {
-        if (!selectedClassId || !selectedSubjectId) return
+        if (!selectedClassId || !selectedSubjectId || !selectedDocId || selectedTopicIds.length === 0) return
         setGenerating(true)
         try {
             const res = await fetch('/api/brain/work/weekly', {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ class_id: selectedClassId, subject_id: selectedSubjectId, week_start: weekStart, week_end: weekEnd, teacher_id: teacherId }),
+                body: JSON.stringify({ 
+                    class_id: selectedClassId, 
+                    subject_id: selectedSubjectId, 
+                    topic_ids: selectedTopicIds,
+                    work_label: workLabel, 
+                    teacher_id: teacherId 
+                }),
             })
             const data = await res.json()
             if (data.success) { setWeeklyWork(data.work); setHasEdits(false) }
@@ -259,7 +335,7 @@ th{background:#f0f0f0;font-weight:bold}.mark-cell{width:120px}
             <main className="max-w-6xl mx-auto px-6 py-6 space-y-6">
                 {/* Filters */}
                 <div className="bg-white/5 rounded-xl border border-white/10 p-5">
-                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
                         <div>
                             <label className="block text-xs font-medium text-gray-400 mb-1.5 uppercase tracking-wider">Class</label>
                             <select value={selectedClassId} onChange={e => { setSelectedClassId(e.target.value); setWeeklyWork(null) }}
@@ -275,24 +351,70 @@ th{background:#f0f0f0;font-weight:bold}.mark-cell{width:120px}
                             </select>
                         </div>
                         <div>
-                            <label className="block text-xs font-medium text-gray-400 mb-1.5 uppercase tracking-wider">Week Start</label>
-                            <input type="date" value={weekStart} onChange={e => { setWeekStart(e.target.value); const end = new Date(e.target.value); end.setDate(end.getDate() + 5); setWeekEnd(end.toISOString().split('T')[0]); setWeeklyWork(null) }}
-                                className="w-full p-2.5 bg-white/10 border border-white/20 rounded-lg text-white focus:ring-2 focus:ring-purple-500 outline-none text-sm" />
+                            <label className="block text-xs font-medium text-gray-400 mb-1.5 uppercase tracking-wider">Lesson</label>
+                            <select
+                                value={selectedDocId}
+                                onChange={(e) => { setSelectedDocId(e.target.value); setWeeklyWork(null) }}
+                                className="w-full p-2.5 bg-white/10 border border-white/20 rounded-lg text-white focus:ring-2 focus:ring-purple-500 outline-none text-sm"
+                            >
+                                {chapters.map(c => (
+                                    <option key={c.document_id} value={c.document_id} className="bg-gray-800">
+                                        Ch {c.chapter_number}: {c.chapter_title}
+                                    </option>
+                                ))}
+                                {chapters.length === 0 && (
+                                    <option className="bg-gray-800">No lessons found</option>
+                                )}
+                            </select>
                         </div>
                         <div>
-                            <label className="block text-xs font-medium text-gray-400 mb-1.5 uppercase tracking-wider">Week End</label>
-                            <input type="date" value={weekEnd} readOnly className="w-full p-2.5 bg-white/5 border border-white/10 rounded-lg text-gray-400 text-sm cursor-not-allowed" />
+                            <label className="block text-xs font-medium text-gray-400 mb-1.5 uppercase tracking-wider">Test Name / Date</label>
+                            <input type="text" value={workLabel} onChange={e => setWorkLabel(e.target.value)} placeholder="e.g. Milestone Test 1"
+                                className="w-full p-2.5 bg-white/10 border border-white/20 rounded-lg text-white focus:ring-2 focus:ring-purple-500 outline-none text-sm" />
                         </div>
                     </div>
+
+                    {!weeklyWork && (
+                        <div>
+                            <label className="block text-xs font-medium text-purple-400 mb-2 uppercase tracking-wider flex items-center gap-2">
+                                <CheckCircle className="w-4 h-4" /> Eligible Topics (Daily Work Completed)
+                            </label>
+                            {selectedDocId && (
+                                completedTopics.length > 0 ? (
+                                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
+                                        {completedTopics.map(topic => (
+                                            <label key={topic.topic_id} className="flex items-center gap-3 p-3 bg-white/5 rounded-lg border border-white/10 hover:bg-white/10 cursor-pointer transition-colors">
+                                                <input 
+                                                    type="checkbox" 
+                                                    checked={selectedTopicIds.includes(topic.topic_id)}
+                                                    onChange={e => {
+                                                        if (e.target.checked) setSelectedTopicIds([...selectedTopicIds, topic.topic_id])
+                                                        else setSelectedTopicIds(selectedTopicIds.filter(id => id !== topic.topic_id))
+                                                    }}
+                                                    className="w-4 h-4 text-purple-600 rounded bg-gray-700 border-gray-600 focus:ring-purple-600"
+                                                />
+                                                <span className="text-sm font-medium">{topic.topic_title}</span>
+                                            </label>
+                                        ))}
+                                    </div>
+                                ) : (
+                                    <div className="p-4 bg-red-500/10 border border-red-500/20 rounded-lg flex items-center gap-3 text-red-400 text-sm">
+                                        <AlertTriangle className="w-5 h-5 flex-shrink-0" />
+                                        <p>No topics have completed the Daily Work stage for this lesson. A topic must have the <b>Daily Completed</b> flag before it can be selected for a Weekly Test.</p>
+                                    </div>
+                                )
+                            )}
+                        </div>
+                    )}
                 </div>
 
                 {/* No work yet */}
                 {!weeklyWork ? (
                     <div className="bg-white/5 rounded-xl border border-white/10 p-10 text-center">
                         <Brain className="w-16 h-16 text-purple-400/40 mx-auto mb-4" />
-                        <h3 className="text-xl font-bold mb-2">No Weekly Test for This Week</h3>
-                        <p className="text-gray-400 mb-6 max-w-md mx-auto">AI will analyze class-wide daily work data and generate a formal written test with 60% focus on weak topics.</p>
-                        <button onClick={handleGenerate} disabled={generating || !selectedSubjectId}
+                        <h3 className="text-xl font-bold mb-2">Gatekeeper: Stage 2 (Weekly Work)</h3>
+                        <p className="text-gray-400 mb-6 max-w-md mx-auto">AI will analyze the combined data from the selected completed Daily Works to generate a 60/40 test.</p>
+                        <button onClick={handleGenerate} disabled={generating || !selectedSubjectId || selectedTopicIds.length === 0}
                             className="px-8 py-3 bg-gradient-to-r from-purple-500 to-indigo-600 rounded-xl font-bold text-white hover:shadow-lg hover:shadow-purple-500/25 transition-all disabled:opacity-50 flex items-center gap-2 mx-auto">
                             {generating ? <><Loader2 className="w-5 h-5 animate-spin" />Generating with AI...</> : <><Zap className="w-5 h-5" />Generate Weekly Test</>}
                         </button>

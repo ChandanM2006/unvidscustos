@@ -1,0 +1,2 @@
+﻿app/dashboard/manage/fees/page.tsx(517,81): error TS2339: Property 'class_id' does not exist on type 'SectionItem'.
+app/dashboard/manage/fees/page.tsx(664,61): error TS2339: Property 'class_id' does not exist on type 'SectionItem'.

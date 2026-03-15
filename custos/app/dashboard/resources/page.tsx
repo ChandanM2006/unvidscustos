@@ -4,32 +4,42 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import {
-    ArrowLeft, BookOpen, FileText, Brain, ClipboardList,
-    Calculator, Loader2, ChevronRight, Search, Star
+    ArrowLeft, BookOpen, FileText, Brain, Layers,
+    Sparkles, Loader2, ChevronRight, Search, ChevronDown, ChevronUp
 } from 'lucide-react'
 
-interface Subject {
+interface LessonResource {
+    resource_id: string
+    document_id: string
     subject_id: string
-    name: string
-    code: string
+    subject_name: string
+    chapter_title: string
+    grade_level: number
+    status: string
+    published_at: string
+    lesson_notes: any
+    study_guide: any
+    worksheet: any
+    revision_notes: any
+    formulas_list: any
 }
 
-interface Topic {
-    topic_id: string
-    topic_title: string
-    chapter_title: string
-    subject_name: string
-    has_resources: boolean
-}
+const RESOURCE_TYPES = [
+    { id: 'lesson_notes', label: 'Lesson Notes', icon: FileText, color: 'bg-purple-100 text-purple-600' },
+    { id: 'study_guide', label: 'Study Guide', icon: BookOpen, color: 'bg-blue-100 text-blue-600' },
+    { id: 'worksheet', label: 'Worksheet', icon: Layers, color: 'bg-green-100 text-green-600' },
+    { id: 'revision_notes', label: 'Revision Notes', icon: Brain, color: 'bg-orange-100 text-orange-600' },
+    { id: 'formulas_list', label: 'Formulas', icon: Sparkles, color: 'bg-red-100 text-red-600' },
+]
 
 export default function StudentResourcesPage() {
     const router = useRouter()
     const [loading, setLoading] = useState(true)
-    const [student, setStudent] = useState<any>(null)
-    const [subjects, setSubjects] = useState<Subject[]>([])
-    const [topics, setTopics] = useState<Topic[]>([])
-    const [selectedSubject, setSelectedSubject] = useState<string | null>(null)
+    const [resources, setResources] = useState<LessonResource[]>([])
     const [searchQuery, setSearchQuery] = useState('')
+    const [selectedSubject, setSelectedSubject] = useState<string | null>(null)
+    const [expandedLesson, setExpandedLesson] = useState<string | null>(null)
+    const [viewingContent, setViewingContent] = useState<{ resId: string; type: string } | null>(null)
 
     useEffect(() => {
         loadData()
@@ -45,7 +55,7 @@ export default function StudentResourcesPage() {
 
             const { data: userData } = await supabase
                 .from('users')
-                .select('*, classes(grade_level)')
+                .select('user_id, role, class_id')
                 .eq('email', session.user.email)
                 .single()
 
@@ -54,46 +64,52 @@ export default function StudentResourcesPage() {
                 return
             }
 
-            setStudent(userData)
-            const gradeLevel = userData.classes?.grade_level
-
-            // Load subjects for student's grade level
-            const { data: subjectsData } = await supabase
-                .from('subjects')
+            // Fetch published lesson resources for student's class
+            const { data: lessonRes, error } = await supabase
+                .from('lesson_resources')
                 .select('*')
-                .contains('grade_levels', [gradeLevel])
-                .eq('is_active', true)
+                .eq('status', 'published')
+                .eq('class_id', userData.class_id)
 
-            if (subjectsData) {
-                setSubjects(subjectsData)
+            if (error) {
+                console.error('Error fetching resources:', error)
             }
 
-            // Load topics with resources
-            const { data: topicsData } = await supabase
-                .from('lesson_topics')
-                .select(`
-                    topic_id,
-                    topic_title,
-                    syllabus_documents (
-                        chapter_title,
-                        grade_level,
-                        subjects (name)
-                    ),
-                    topic_resources (resource_id)
-                `)
-                .order('topic_number')
+            if (lessonRes && lessonRes.length > 0) {
+                // Get document info
+                const docIds = [...new Set(lessonRes.map(r => r.document_id))]
+                const { data: docs } = await supabase
+                    .from('syllabus_documents')
+                    .select('document_id, chapter_title, grade_level, subject_id')
+                    .in('document_id', docIds)
 
-            if (topicsData) {
-                const formatted = topicsData
-                    .filter((t: any) => t.syllabus_documents?.grade_level === gradeLevel)
-                    .map((t: any) => ({
-                        topic_id: t.topic_id,
-                        topic_title: t.topic_title,
-                        chapter_title: t.syllabus_documents?.chapter_title || '',
-                        subject_name: t.syllabus_documents?.subjects?.name || 'Unknown',
-                        has_resources: t.topic_resources && t.topic_resources.length > 0
-                    }))
-                setTopics(formatted)
+                // Get subject names
+                const subjectIds = [...new Set((docs || []).map(d => d.subject_id).filter(Boolean))]
+                const subjectMap: Record<string, string> = {}
+                if (subjectIds.length > 0) {
+                    const { data: subjects } = await supabase
+                        .from('subjects')
+                        .select('subject_id, name')
+                        .in('subject_id', subjectIds)
+                    subjects?.forEach(s => { subjectMap[s.subject_id] = s.name })
+                }
+
+                const docMap = new Map((docs || []).map(d => [d.document_id, d]))
+
+                const formatted: LessonResource[] = lessonRes.map(r => {
+                    const doc = docMap.get(r.document_id) as any || {}
+                    return {
+                        ...r,
+                        chapter_title: doc.chapter_title || 'Lesson',
+                        grade_level: doc.grade_level || 0,
+                        subject_name: subjectMap[doc.subject_id] || 'Unknown',
+                        subject_id: doc.subject_id || '',
+                    }
+                })
+
+                setResources(formatted)
+            } else {
+                setResources([])
             }
 
         } catch (error) {
@@ -103,13 +119,69 @@ export default function StudentResourcesPage() {
         }
     }
 
-    const filteredTopics = topics.filter(t => {
+    // Get unique subjects
+    const subjects = [...new Set(resources.map(r => r.subject_name))].sort()
+
+    const filteredResources = resources.filter(r => {
         const matchesSearch = searchQuery === '' ||
-            t.topic_title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-            t.chapter_title.toLowerCase().includes(searchQuery.toLowerCase())
-        const matchesSubject = !selectedSubject || t.subject_name === selectedSubject
+            r.chapter_title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+            r.subject_name.toLowerCase().includes(searchQuery.toLowerCase())
+        const matchesSubject = !selectedSubject || r.subject_name === selectedSubject
         return matchesSearch && matchesSubject
     })
+
+    const renderContent = (content: any) => {
+        if (!content) return <p className="text-gray-400 italic">Not available</p>
+
+        if (typeof content === 'string') {
+            return <div className="text-gray-700 whitespace-pre-wrap leading-relaxed">{content}</div>
+        }
+
+        if (Array.isArray(content)) {
+            return (
+                <div className="space-y-3">
+                    {content.map((item: any, i: number) => (
+                        <div key={i} className="p-4 bg-white rounded-xl border border-gray-100">
+                            {typeof item === 'string' ? (
+                                <p className="text-gray-700">{item}</p>
+                            ) : (
+                                <pre className="text-sm text-gray-600 whitespace-pre-wrap">{JSON.stringify(item, null, 2)}</pre>
+                            )}
+                        </div>
+                    ))}
+                </div>
+            )
+        }
+
+        if (typeof content === 'object') {
+            return (
+                <div className="space-y-4">
+                    {Object.entries(content).map(([key, value]: [string, any]) => (
+                        <div key={key}>
+                            <h4 className="font-semibold text-gray-900 mb-2 capitalize">{key.replace(/_/g, ' ')}</h4>
+                            {typeof value === 'string' ? (
+                                <p className="text-gray-700 whitespace-pre-wrap">{value}</p>
+                            ) : Array.isArray(value) ? (
+                                <ul className="space-y-1 ml-4">
+                                    {value.map((item: any, i: number) => (
+                                        <li key={i} className="text-gray-600">
+                                            {typeof item === 'string' ? `• ${item}` : (
+                                                <pre className="text-sm whitespace-pre-wrap">{JSON.stringify(item, null, 2)}</pre>
+                                            )}
+                                        </li>
+                                    ))}
+                                </ul>
+                            ) : (
+                                <pre className="text-sm text-gray-600 whitespace-pre-wrap bg-gray-50 p-3 rounded-lg">{JSON.stringify(value, null, 2)}</pre>
+                            )}
+                        </div>
+                    ))}
+                </div>
+            )
+        }
+
+        return <p className="text-gray-500">{String(content)}</p>
+    }
 
     if (loading) {
         return (
@@ -130,7 +202,7 @@ export default function StudentResourcesPage() {
                         </button>
                         <div>
                             <h1 className="text-xl font-bold text-gray-900">Study Materials</h1>
-                            <p className="text-sm text-gray-500">Access your learning resources</p>
+                            <p className="text-sm text-gray-500">Access your lesson resources</p>
                         </div>
                     </div>
 
@@ -139,7 +211,7 @@ export default function StudentResourcesPage() {
                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
                         <input
                             type="text"
-                            placeholder="Search topics..."
+                            placeholder="Search lessons..."
                             value={searchQuery}
                             onChange={(e) => setSearchQuery(e.target.value)}
                             className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-teal-500 focus:border-teal-500 outline-none"
@@ -150,94 +222,121 @@ export default function StudentResourcesPage() {
 
             <main className="max-w-4xl mx-auto p-6 space-y-6">
                 {/* Subject Filter */}
-                <div className="flex gap-2 overflow-x-auto pb-2">
-                    <button
-                        onClick={() => setSelectedSubject(null)}
-                        className={`px-4 py-2 rounded-full whitespace-nowrap transition-all ${!selectedSubject
-                                ? 'bg-teal-600 text-white'
-                                : 'bg-white text-gray-600 hover:bg-gray-100'
-                            }`}
-                    >
-                        All Subjects
-                    </button>
-                    {subjects.map(sub => (
+                {subjects.length > 1 && (
+                    <div className="flex gap-2 overflow-x-auto pb-2">
                         <button
-                            key={sub.subject_id}
-                            onClick={() => setSelectedSubject(sub.name)}
-                            className={`px-4 py-2 rounded-full whitespace-nowrap transition-all ${selectedSubject === sub.name
+                            onClick={() => setSelectedSubject(null)}
+                            className={`px-4 py-2 rounded-full whitespace-nowrap transition-all ${!selectedSubject
                                     ? 'bg-teal-600 text-white'
                                     : 'bg-white text-gray-600 hover:bg-gray-100'
                                 }`}
                         >
-                            {sub.name}
+                            All Subjects
                         </button>
-                    ))}
-                </div>
-
-                {/* Topics List */}
-                <div className="space-y-3">
-                    {filteredTopics.length > 0 ? filteredTopics.map(topic => (
-                        <button
-                            key={topic.topic_id}
-                            onClick={() => router.push(`/dashboard/resources/${topic.topic_id}`)}
-                            className="w-full bg-white rounded-xl p-4 shadow-sm hover:shadow-md transition-all flex items-center justify-between text-left"
-                        >
-                            <div className="flex items-center gap-4">
-                                <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${topic.has_resources ? 'bg-teal-100' : 'bg-gray-100'
-                                    }`}>
-                                    <BookOpen className={`w-6 h-6 ${topic.has_resources ? 'text-teal-600' : 'text-gray-400'
-                                        }`} />
-                                </div>
-                                <div>
-                                    <p className="font-semibold text-gray-900">{topic.topic_title}</p>
-                                    <p className="text-sm text-gray-500">
-                                        {topic.subject_name} • {topic.chapter_title}
-                                    </p>
-                                </div>
-                            </div>
-                            <div className="flex items-center gap-2">
-                                {topic.has_resources && (
-                                    <span className="px-2 py-1 bg-green-100 text-green-700 rounded-full text-xs font-medium">
-                                        Available
-                                    </span>
-                                )}
-                                <ChevronRight className="w-5 h-5 text-gray-400" />
-                            </div>
-                        </button>
-                    )) : (
-                        <div className="bg-white rounded-xl p-8 text-center">
-                            <BookOpen className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-                            <p className="text-gray-500">No topics found</p>
-                        </div>
-                    )}
-                </div>
-
-                {/* Resource Types Legend */}
-                <div className="bg-white rounded-xl p-4 shadow-sm">
-                    <h3 className="font-semibold text-gray-900 mb-3">Available Resource Types</h3>
-                    <div className="grid grid-cols-2 md:grid-cols-5 gap-3 text-sm">
-                        <div className="flex items-center gap-2 text-gray-600">
-                            <FileText className="w-4 h-4 text-purple-600" />
-                            Lesson Notes
-                        </div>
-                        <div className="flex items-center gap-2 text-gray-600">
-                            <BookOpen className="w-4 h-4 text-blue-600" />
-                            Study Guide
-                        </div>
-                        <div className="flex items-center gap-2 text-gray-600">
-                            <ClipboardList className="w-4 h-4 text-green-600" />
-                            Worksheet
-                        </div>
-                        <div className="flex items-center gap-2 text-gray-600">
-                            <Brain className="w-4 h-4 text-orange-600" />
-                            Revision Notes
-                        </div>
-                        <div className="flex items-center gap-2 text-gray-600">
-                            <Calculator className="w-4 h-4 text-red-600" />
-                            Formulas
-                        </div>
+                        {subjects.map(sub => (
+                            <button
+                                key={sub}
+                                onClick={() => setSelectedSubject(sub)}
+                                className={`px-4 py-2 rounded-full whitespace-nowrap transition-all ${selectedSubject === sub
+                                        ? 'bg-teal-600 text-white'
+                                        : 'bg-white text-gray-600 hover:bg-gray-100'
+                                    }`}
+                            >
+                                {sub}
+                            </button>
+                        ))}
                     </div>
-                </div>
+                )}
+
+                {/* Lessons List */}
+                {filteredResources.length > 0 ? (
+                    <div className="space-y-4">
+                        {filteredResources.map(res => {
+                            const isExpanded = expandedLesson === res.resource_id
+                            const availableTypes = RESOURCE_TYPES.filter(rt => !!res[rt.id as keyof LessonResource])
+
+                            return (
+                                <div key={res.resource_id} className="bg-white rounded-2xl shadow-sm overflow-hidden border border-gray-100">
+                                    {/* Lesson Header */}
+                                    <button
+                                        onClick={() => setExpandedLesson(isExpanded ? null : res.resource_id)}
+                                        className="w-full p-5 flex items-center justify-between hover:bg-gray-50 transition-colors text-left"
+                                    >
+                                        <div className="flex items-center gap-4">
+                                            <div className="w-12 h-12 bg-teal-100 rounded-xl flex items-center justify-center">
+                                                <BookOpen className="w-6 h-6 text-teal-600" />
+                                            </div>
+                                            <div>
+                                                <p className="font-bold text-gray-900">{res.chapter_title}</p>
+                                                <p className="text-sm text-gray-500">
+                                                    {res.subject_name} • {availableTypes.length} resources
+                                                </p>
+                                            </div>
+                                        </div>
+                                        {isExpanded ? (
+                                            <ChevronUp className="w-5 h-5 text-gray-400" />
+                                        ) : (
+                                            <ChevronDown className="w-5 h-5 text-gray-400" />
+                                        )}
+                                    </button>
+
+                                    {/* Expanded */}
+                                    {isExpanded && (
+                                        <div className="border-t border-gray-100 p-5 space-y-4">
+                                            {/* Resource Type Buttons */}
+                                            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+                                                {RESOURCE_TYPES.map(rt => {
+                                                    const hasThis = !!res[rt.id as keyof LessonResource]
+                                                    const isViewing = viewingContent?.resId === res.resource_id && viewingContent?.type === rt.id
+                                                    const Icon = rt.icon
+
+                                                    if (!hasThis) return null
+
+                                                    return (
+                                                        <button
+                                                            key={rt.id}
+                                                            onClick={() => setViewingContent(isViewing ? null : { resId: res.resource_id, type: rt.id })}
+                                                            className={`p-3 rounded-xl text-center transition-all ${
+                                                                isViewing
+                                                                    ? 'bg-teal-100 border-2 border-teal-500 shadow-md'
+                                                                    : 'bg-gray-50 border-2 border-transparent hover:border-teal-200 hover:bg-teal-50'
+                                                            }`}
+                                                        >
+                                                            <Icon className={`w-5 h-5 mx-auto mb-1 ${
+                                                                isViewing ? 'text-teal-600' : 'text-gray-600'
+                                                            }`} />
+                                                            <p className={`text-xs font-medium ${
+                                                                isViewing ? 'text-teal-700' : 'text-gray-600'
+                                                            }`}>{rt.label}</p>
+                                                        </button>
+                                                    )
+                                                })}
+                                            </div>
+
+                                            {/* Content Viewer */}
+                                            {viewingContent?.resId === res.resource_id && (
+                                                <div className="p-5 bg-gray-50 rounded-2xl border border-gray-200 max-h-[500px] overflow-y-auto">
+                                                    <h4 className="text-lg font-bold text-gray-900 mb-4">
+                                                        {RESOURCE_TYPES.find(r => r.id === viewingContent.type)?.label}
+                                                    </h4>
+                                                    {renderContent(
+                                                        res[viewingContent.type as keyof LessonResource]
+                                                    )}
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
+                            )
+                        })}
+                    </div>
+                ) : (
+                    <div className="bg-white rounded-2xl p-12 text-center shadow-sm">
+                        <BookOpen className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+                        <h3 className="text-xl font-bold text-gray-900 mb-2">No Study Materials Yet</h3>
+                        <p className="text-gray-500">Your teacher will publish resources after completing lessons.</p>
+                    </div>
+                )}
             </main>
         </div>
     )

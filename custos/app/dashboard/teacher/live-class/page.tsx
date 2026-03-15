@@ -23,6 +23,7 @@ interface ScheduledClass {
     start_time: string
     end_time: string
     room_number?: string
+    is_substitute?: boolean
     // Lesson plan info
     plan_id?: string
     topics: TopicItem[]
@@ -49,6 +50,7 @@ interface LiveSession {
     started_at: string | null
     ended_at: string | null
     duration_minutes: number | null
+    late_minutes?: number | null
     teacher_notes: string | null
 }
 
@@ -126,8 +128,8 @@ export default function TeacherLiveClassPage() {
         // Get timetable entries for today
         const { data: entries } = await supabase
             .from('timetable_entries')
-            .select('entry_id, class_id, section_id, subject_id, slot_id, room_number')
-            .eq('teacher_id', teacherId)
+            .select('entry_id, class_id, section_id, subject_id, slot_id, room_number, notes, teacher_id')
+            .or(`teacher_id.eq.${teacherId},notes.ilike.%${teacherId}%`)
             .eq('day_of_week', dayOfWeek)
 
         if (!entries || entries.length === 0) {
@@ -135,10 +137,26 @@ export default function TeacherLiveClassPage() {
             return
         }
 
+        let allEntries = entries || []
+        allEntries = allEntries.filter(e => {
+            let subId = null;
+            if (e.notes) {
+                try { const n = JSON.parse(e.notes); if (n.type === 'substitution') subId = n.substitute_teacher_id; } catch(err){}
+            }
+            if (subId) {
+                if (subId === teacherId) {
+                    (e as any).is_substitute = true;
+                    return true;
+                }
+                return false; // I am primary but someone else is substituting
+            }
+            return e.teacher_id === teacherId;
+        });
+
         // ── DEDUPLICATION: Remove duplicates (same class + section + slot) ──
         // Keep only the first entry for each unique combination
         const seen = new Set<string>()
-        const uniqueEntries = entries.filter(e => {
+        const uniqueEntries = allEntries.filter(e => {
             const key = `${e.class_id}_${e.section_id || 'none'}_${e.slot_id || 'none'}`
             if (seen.has(key)) return false
             seen.add(key)
@@ -294,6 +312,7 @@ export default function TeacherLiveClassPage() {
                     start_time: slot.start_time,
                     end_time: slot.end_time,
                     room_number: e.room_number,
+                    is_substitute: (e as any).is_substitute,
                     plan_id: planInfo?.plan_id,
                     topics: planInfo?.topics || [],
                     pending_topics: allPending
@@ -352,6 +371,7 @@ export default function TeacherLiveClassPage() {
                     section_id: cls.section_id,
                     subject_id: cls.subject_id,
                     slot_id: cls.slot_id,
+                    slot_start_time: cls.start_time,
                     plan_id: cls.plan_id || null,
                     scheduled_topics: cls.topics,
                     pending_topics: cls.pending_topics || []
@@ -506,6 +526,7 @@ export default function TeacherLiveClassPage() {
                             </div>
                             <div>
                                 <h1 className="text-xl font-bold">
+                                    {selectedClass.is_substitute && <span className="text-[10px] uppercase font-bold text-white bg-purple-500/50 px-1 py-0.5 rounded shadow-sm mr-2 align-middle">SUB</span>}
                                     {selectedClass.subject_name}
                                 </h1>
                                 <p className="text-sm text-purple-300">
@@ -539,6 +560,17 @@ export default function TeacherLiveClassPage() {
                                 </div>
                             </div>
                             <div className="flex items-center gap-2">
+                                {activeSession.late_minutes && activeSession.late_minutes > 0 ? (
+                                    <span className={`px-3 py-1.5 rounded-full text-xs font-bold flex items-center gap-1 ${activeSession.late_minutes <= 5
+                                            ? 'bg-green-500/20 text-green-300'
+                                            : activeSession.late_minutes <= 10
+                                                ? 'bg-orange-500/20 text-orange-300'
+                                                : 'bg-red-500/20 text-red-300'
+                                        }`}>
+                                        <AlertTriangle className="w-3 h-3" />
+                                        Started late by {activeSession.late_minutes} min
+                                    </span>
+                                ) : null}
                                 <span className="px-3 py-1.5 bg-green-500/30 text-green-300 rounded-full text-xs font-bold flex items-center gap-1">
                                     <Radio className="w-3 h-3 animate-pulse" />
                                     LIVE
@@ -867,7 +899,10 @@ export default function TeacherLiveClassPage() {
                                         <div className="flex items-start justify-between mb-3">
                                             <div>
                                                 <div className="flex items-center gap-2 mb-1">
-                                                    <h3 className="font-bold text-lg">{cls.subject_name}</h3>
+                                                    <h3 className="font-bold text-lg">
+                                                        {cls.is_substitute && <span className="text-[10px] uppercase font-bold text-white bg-purple-500/50 px-1 py-0.5 rounded shadow-sm mr-2 align-middle">SUB</span>}
+                                                        {cls.subject_name}
+                                                    </h3>
                                                     <span className="px-2 py-0.5 bg-purple-500/20 text-purple-300 text-xs rounded-full font-medium">
                                                         {cls.class_name} {cls.section_name}
                                                     </span>
@@ -896,10 +931,23 @@ export default function TeacherLiveClassPage() {
                                                 </span>
                                             )}
                                             {isCompleted && (
-                                                <span className="px-3 py-1.5 bg-gray-500/20 text-gray-400 rounded-full text-xs font-bold flex items-center gap-1">
-                                                    <CheckCircle className="w-3 h-3" />
-                                                    Done
-                                                </span>
+                                                <div className="flex items-center gap-2">
+                                                    {session?.late_minutes && session.late_minutes > 0 ? (
+                                                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold flex items-center gap-1 ${session.late_minutes <= 5
+                                                                ? 'bg-green-500/20 text-green-300'
+                                                                : session.late_minutes <= 10
+                                                                    ? 'bg-orange-500/20 text-orange-300'
+                                                                    : 'bg-red-500/20 text-red-300'
+                                                            }`}>
+                                                            <AlertTriangle className="w-2 h-2" />
+                                                            Late: {session.late_minutes}m
+                                                        </span>
+                                                    ) : null}
+                                                    <span className="px-3 py-1.5 bg-gray-500/20 text-gray-400 rounded-full text-xs font-bold flex items-center gap-1">
+                                                        <CheckCircle className="w-3 h-3" />
+                                                        Done
+                                                    </span>
+                                                </div>
                                             )}
                                             {!isActive && !isCompleted && timeStatus === 'current' && (
                                                 <span className="px-3 py-1.5 bg-purple-500/20 text-purple-300 rounded-full text-xs font-bold flex items-center gap-1">
@@ -989,26 +1037,35 @@ export default function TeacherLiveClassPage() {
 
                                         {/* Action Button */}
                                         {!isCompleted && !isActive && (
-                                            <button
-                                                onClick={() => startSession(cls)}
-                                                disabled={actionLoading || sessions.some(s => s.status === 'in_progress')}
-                                                className={`w-full py-3 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all ${sessions.some(s => s.status === 'in_progress')
-                                                    ? 'bg-gray-500/20 text-gray-500 cursor-not-allowed'
-                                                    : 'bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 shadow-lg shadow-green-500/20'
-                                                    }`}
-                                            >
-                                                {actionLoading ? (
-                                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                            <>
+                                                {timeStatus === 'past' ? (
+                                                    <div className="w-full py-3 bg-red-500/10 text-red-400 rounded-xl font-bold text-sm flex items-center justify-center gap-2 border border-red-500/20">
+                                                        <XCircle className="w-4 h-4" />
+                                                        Class time has ended. Cannot start.
+                                                    </div>
                                                 ) : (
-                                                    <Play className="w-4 h-4" />
+                                                    <button
+                                                        onClick={() => startSession(cls)}
+                                                        disabled={actionLoading || sessions.some(s => s.status === 'in_progress')}
+                                                        className={`w-full py-3 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all ${sessions.some(s => s.status === 'in_progress')
+                                                            ? 'bg-gray-500/20 text-gray-500 cursor-not-allowed'
+                                                            : 'bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 shadow-lg shadow-green-500/20'
+                                                            }`}
+                                                    >
+                                                        {actionLoading ? (
+                                                            <Loader2 className="w-4 h-4 animate-spin" />
+                                                        ) : (
+                                                            <Play className="w-4 h-4" />
+                                                        )}
+                                                        {sessions.some(s => s.status === 'in_progress')
+                                                            ? 'Another session is active'
+                                                            : hasPendingTopics
+                                                                ? `Start Class (${cls.pending_topics.length} pending + ${cls.topics.length} new)`
+                                                                : 'Start Class'
+                                                        }
+                                                    </button>
                                                 )}
-                                                {sessions.some(s => s.status === 'in_progress')
-                                                    ? 'Another session is active'
-                                                    : hasPendingTopics
-                                                        ? `Start Class (${cls.pending_topics.length} pending + ${cls.topics.length} new)`
-                                                        : 'Start Class'
-                                                }
-                                            </button>
+                                            </>
                                         )}
 
                                         {isActive && (

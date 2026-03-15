@@ -211,21 +211,7 @@ export default function StudentAnalyticsPage() {
                         This Week&apos;s Activity
                     </h2>
 
-                    {/* Progress bar */}
-                    <div className="mb-4">
-                        <div className="flex items-center justify-between mb-2">
-                            <span className="text-sm text-purple-200">
-                                {data.week.completed_days}/{data.week.total_days} days
-                            </span>
-                            <span className="text-sm font-bold text-white">{data.week.percentage}%</span>
-                        </div>
-                        <div className="h-3 bg-white/10 rounded-full overflow-hidden">
-                            <div
-                                className="h-full bg-gradient-to-r from-indigo-500 to-purple-500 rounded-full transition-all duration-700"
-                                style={{ width: `${data.week.percentage}%` }}
-                            />
-                        </div>
-                    </div>
+
 
                     {/* Stats Row */}
                     <div className="grid grid-cols-3 gap-3">
@@ -246,19 +232,7 @@ export default function StudentAnalyticsPage() {
                         </div>
                     </div>
 
-                    {/* Level progress */}
-                    <div className="mt-3">
-                        <div className="flex items-center justify-between mb-1">
-                            <span className="text-[10px] text-purple-300/40">Level {data.activity_score.level}</span>
-                            <span className="text-[10px] text-purple-300/40">{data.activity_score.next_level_points} pts</span>
-                        </div>
-                        <div className="h-1.5 bg-white/5 rounded-full overflow-hidden">
-                            <div
-                                className="h-full bg-gradient-to-r from-yellow-500 to-amber-500 rounded-full transition-all duration-500"
-                                style={{ width: `${progressPercent}%` }}
-                            />
-                        </div>
-                    </div>
+
                 </section>
 
                 {/* ─── Strong Topics ────────────────────────────── */}
@@ -391,25 +365,7 @@ export default function StudentAnalyticsPage() {
                     </div>
                 </section>
 
-                {/* ─── Quick Actions ────────────────────────────── */}
-                <div className="grid grid-cols-2 gap-3 pb-4">
-                    <button
-                        onClick={() => router.push('/dashboard/student/practice')}
-                        className="bg-gradient-to-r from-indigo-600/50 to-purple-600/50 border border-indigo-500/20 rounded-xl p-4 text-left hover:scale-[1.02] transition-all active:scale-[0.98]"
-                    >
-                        <Brain className="w-6 h-6 text-indigo-400 mb-2" />
-                        <p className="text-sm font-semibold text-white">Daily Practice</p>
-                        <p className="text-[10px] text-purple-300/50">Start today&apos;s session</p>
-                    </button>
-                    <button
-                        onClick={() => router.push('/dashboard/student/practice?type=weekly')}
-                        className="bg-gradient-to-r from-blue-600/50 to-cyan-600/50 border border-blue-500/20 rounded-xl p-4 text-left hover:scale-[1.02] transition-all active:scale-[0.98]"
-                    >
-                        <BookOpen className="w-6 h-6 text-cyan-400 mb-2" />
-                        <p className="text-sm font-semibold text-white">Weekly Test</p>
-                        <p className="text-[10px] text-purple-300/50">Test this week&apos;s topics</p>
-                    </button>
-                </div>
+
             </main>
         </div>
     )

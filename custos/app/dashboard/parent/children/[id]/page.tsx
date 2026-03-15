@@ -4,10 +4,7 @@ import { useState, useEffect } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import {
-    ArrowLeft, Loader2, Flame, Star, Trophy, BookOpen,
-    Clock, CalendarDays, MessageSquare, Award, CheckCircle,
-    XCircle, AlertCircle, Timer, Phone, Calendar, Sparkles,
-    Heart, Shield
+    ArrowLeft, Loader2, AlertCircle, Timer, Heart, Shield, ListTodo
 } from 'lucide-react'
 
 // ── Types ────────────────────────────────────────────────
@@ -20,28 +17,7 @@ interface ChildDetail {
     roll_no?: string
 }
 
-interface WeekDay {
-    date: string
-    label: string
-    shortLabel: string
-    status: 'completed' | 'pending' | 'missed' | 'future'
-}
-
-interface TopicCovered {
-    subject_name: string
-    topic_name: string
-}
-
-interface Achievement {
-    name: string
-    description: string | null
-    icon: string
-    earned_at: string
-}
-
 interface ActivitySummary {
-    streak: number
-    total_points: number
     time_spent_week: number // minutes
     avg_time_per_day: number // minutes
     total_days_completed: number
@@ -56,11 +32,9 @@ export default function ParentChildDetailPage() {
 
     const [loading, setLoading] = useState(true)
     const [child, setChild] = useState<ChildDetail | null>(null)
-    const [weekDays, setWeekDays] = useState<WeekDay[]>([])
-    const [topicsCovered, setTopicsCovered] = useState<TopicCovered[]>([])
-    const [achievements, setAchievements] = useState<Achievement[]>([])
+    const [dailyWork, setDailyWork] = useState({ completed: 0, pending: 0, missed: 0 })
     const [summary, setSummary] = useState<ActivitySummary>({
-        streak: 0, total_points: 0, time_spent_week: 0, avg_time_per_day: 0, total_days_completed: 0
+        time_spent_week: 0, avg_time_per_day: 0, total_days_completed: 0
     })
 
 
@@ -133,9 +107,7 @@ export default function ParentChildDetailPage() {
 
             // Load all data in parallel
             await Promise.all([
-                loadWeekActivity(childId),
-                loadTopicsCovered(childId, student.class_id, student.section_id),
-                loadAchievements(childId),
+                loadDailyWorkCounts(childId),
                 loadActivitySummary(childId),
             ])
         } catch (err) {
@@ -145,117 +117,27 @@ export default function ParentChildDetailPage() {
         }
     }
 
-    async function loadWeekActivity(studentId: string) {
-        const today = new Date()
-        const dayOfWeek = today.getDay()
-        const monday = new Date(today)
-        monday.setDate(today.getDate() - ((dayOfWeek + 6) % 7))
+    async function loadDailyWorkCounts(studentId: string) {
+        const today = new Date().toISOString().split('T')[0]
+        const { data: phases } = await supabase
+            .from('assessment_phases')
+            .select('status')
+            .eq('student_id', studentId)
+            .eq('scheduled_date', today)
+            .eq('phase_type', 'daily')
 
-        const dayLabels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
-        const days: WeekDay[] = []
-
-        for (let i = 0; i < 7; i++) {
-            const d = new Date(monday)
-            d.setDate(monday.getDate() + i)
-            const dateStr = d.toISOString().split('T')[0]
-            const isFuture = d > today
-
-            let status: 'completed' | 'pending' | 'missed' | 'future' = 'future'
-            if (!isFuture) {
-                const { data: phases } = await supabase
-                    .from('assessment_phases')
-                    .select('status')
-                    .eq('student_id', studentId)
-                    .eq('scheduled_date', dateStr)
-                    .eq('phase_type', 'daily')
-
-                if (phases && phases.length > 0) {
-                    const p = phases[0]
-                    if (p.status === 'completed') status = 'completed'
-                    else if (p.status === 'missed') status = 'missed'
-                    else if (dateStr === today.toISOString().split('T')[0]) status = 'pending'
-                    else status = 'missed'
-                } else {
-                    if (dateStr === today.toISOString().split('T')[0]) status = 'pending'
-                    else status = 'missed'
-                }
-            }
-
-            days.push({
-                date: dateStr,
-                label: dayLabels[i],
-                shortLabel: dayLabels[i].charAt(0),
-                status,
+        let completed = 0, pending = 0, missed = 0
+        if (phases) {
+            phases.forEach((p: any) => {
+                if (p.status === 'completed') completed++
+                else if (p.status === 'missed') missed++
+                else pending++
             })
         }
-
-        setWeekDays(days)
-    }
-
-    async function loadTopicsCovered(studentId: string, classId: string | null, sectionId: string | null) {
-        if (!classId || !sectionId) return
-
-        const weekStart = new Date()
-        weekStart.setDate(weekStart.getDate() - ((weekStart.getDay() + 6) % 7))
-        const weekStartStr = weekStart.toISOString().split('T')[0]
-        const today = new Date().toISOString().split('T')[0]
-
-        const { data: schedules } = await supabase
-            .from('daily_topic_schedule')
-            .select(`
-                topic:topic_id (topic_name),
-                subject:subject_id (name)
-            `)
-            .eq('class_id', classId)
-            .eq('section_id', sectionId)
-            .gte('scheduled_date', weekStartStr)
-            .lte('scheduled_date', today)
-
-        if (schedules) {
-            const topics = schedules.map((s: any) => ({
-                subject_name: s.subject?.name || 'Subject',
-                topic_name: s.topic?.topic_name || 'Topic',
-            }))
-            // Deduplicate
-            const unique = topics.filter((t, i, arr) =>
-                arr.findIndex(x => x.subject_name === t.subject_name && x.topic_name === t.topic_name) === i
-            )
-            setTopicsCovered(unique)
-        }
-    }
-
-    async function loadAchievements(studentId: string) {
-        const { data } = await supabase
-            .from('student_achievements')
-            .select(`
-                earned_at,
-                achievements (name, description, icon)
-            `)
-            .eq('student_id', studentId)
-            .order('earned_at', { ascending: false })
-            .limit(10)
-
-        if (data) {
-            setAchievements(data.map((a: any) => ({
-                name: a.achievements?.name || 'Badge',
-                description: a.achievements?.description || null,
-                icon: a.achievements?.icon || '🏆',
-                earned_at: a.earned_at,
-            })))
-        }
+        setDailyWork({ completed, pending, missed })
     }
 
     async function loadActivitySummary(studentId: string) {
-        // Get scores
-        const { data: scores } = await supabase
-            .from('student_scores')
-            .select('activity_score, daily_streak')
-            .eq('student_id', studentId)
-            .order('last_updated', { ascending: false })
-            .limit(1)
-
-        const score = scores?.[0]
-
         // Get this week's phases for time calculation
         const weekStart = new Date()
         weekStart.setDate(weekStart.getDate() - ((weekStart.getDay() + 6) % 7))
@@ -266,47 +148,16 @@ export default function ParentChildDetailPage() {
             .eq('phase_type', 'daily')
             .gte('scheduled_date', weekStart.toISOString().split('T')[0])
 
-        const completedPhases = weekPhases?.filter(p => p.status === 'completed') || []
-        const totalSeconds = completedPhases.reduce((sum, p) => sum + (p.time_taken_seconds || 0), 0)
+        const completedPhases = weekPhases?.filter((p: any) => p.status === 'completed') || []
+        const totalSeconds = completedPhases.reduce((sum: number, p: any) => sum + (p.time_taken_seconds || 0), 0)
         const totalMinutes = Math.round(totalSeconds / 60)
         const avgMinutes = completedPhases.length > 0 ? Math.round(totalMinutes / completedPhases.length) : 0
 
         setSummary({
-            streak: score?.daily_streak || 0,
-            total_points: score?.activity_score || 0,
             time_spent_week: totalMinutes,
             avg_time_per_day: avgMinutes,
             total_days_completed: completedPhases.length,
         })
-    }
-
-
-    function getStatusIcon(status: string) {
-        switch (status) {
-            case 'completed': return <CheckCircle className="w-5 h-5 text-emerald-400" />
-            case 'pending': return <Clock className="w-5 h-5 text-amber-400" />
-            case 'missed': return <XCircle className="w-5 h-5 text-red-400" />
-            case 'future': return <div className="w-5 h-5 rounded-full border-2 border-white/20" />
-            default: return <div className="w-5 h-5 rounded-full border-2 border-white/20" />
-        }
-    }
-
-    function getStatusEmoji(status: string) {
-        switch (status) {
-            case 'completed': return '✅'
-            case 'pending': return '⏳'
-            case 'missed': return '❌'
-            case 'future': return '⬜'
-            default: return '⬜'
-        }
-    }
-
-    function formatRelativeTime(dateStr: string): string {
-        const days = Math.floor((Date.now() - new Date(dateStr).getTime()) / (1000 * 60 * 60 * 24))
-        if (days === 0) return 'Today'
-        if (days === 1) return 'Yesterday'
-        if (days < 7) return `${days} days ago`
-        return `${Math.floor(days / 7)} weeks ago`
     }
 
     // ── Loading ─────────────────────────────────
@@ -375,135 +226,54 @@ export default function ParentChildDetailPage() {
                     </div>
                 </section>
 
-                {/* This Week's Activity Calendar */}
+                {/* Today's Daily Work */}
                 <section className="bg-white/[0.06] backdrop-blur-xl border border-white/10 rounded-2xl p-5">
                     <h3 className="text-sm font-semibold text-purple-300/70 uppercase tracking-wider mb-4 flex items-center gap-2">
-                        <CalendarDays className="w-4 h-4 text-cyan-400" />
-                        This Week&apos;s Activity
+                        <ListTodo className="w-4 h-4 text-cyan-400" />
+                        Today&apos;s Daily Work
                     </h3>
 
-                    <div className="flex justify-between gap-2 mb-6">
-                        {weekDays.map((day) => (
-                            <div key={day.date} className="flex-1 text-center">
-                                <p className="text-[10px] text-purple-300/50 mb-2">{day.label}</p>
-                                <div className={`w-10 h-10 mx-auto rounded-xl flex items-center justify-center ${day.status === 'completed' ? 'bg-emerald-500/20 border border-emerald-500/30' :
-                                    day.status === 'pending' ? 'bg-amber-500/20 border border-amber-500/30' :
-                                        day.status === 'missed' ? 'bg-red-500/20 border border-red-500/30' :
-                                            'bg-white/5 border border-white/10'
-                                    }`}>
-                                    <span className="text-lg">{getStatusEmoji(day.status)}</span>
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-
-                    {/* Quick Stats */}
-                    <div className="grid grid-cols-2 gap-3">
-                        <div className="bg-white/5 rounded-xl p-3 flex items-center gap-3">
-                            <Flame className="w-8 h-8 text-orange-400" />
-                            <div>
-                                <p className="text-xl font-bold text-white">{summary.streak} days</p>
-                                <p className="text-[10px] text-purple-300/50">Current Streak</p>
-                            </div>
+                    <div className="grid grid-cols-3 gap-3">
+                        <div className="bg-white/5 rounded-xl p-4 text-center border border-emerald-500/20">
+                            <p className="text-3xl font-bold text-emerald-400">{dailyWork.completed}</p>
+                            <p className="text-[10px] text-purple-300/50 mt-1 uppercase font-medium">Completed</p>
                         </div>
-                        <div className="bg-white/5 rounded-xl p-3 flex items-center gap-3">
-                            <Star className="w-8 h-8 text-yellow-400" />
-                            <div>
-                                <p className="text-xl font-bold text-white">
-                                    {summary.total_points >= 1000
-                                        ? `${(summary.total_points / 1000).toFixed(1)}k`
-                                        : summary.total_points}
-                                </p>
-                                <p className="text-[10px] text-purple-300/50">Total Points</p>
-                            </div>
+                        <div className="bg-white/5 rounded-xl p-4 text-center border border-amber-500/20">
+                            <p className="text-3xl font-bold text-amber-400">{dailyWork.pending}</p>
+                            <p className="text-[10px] text-purple-300/50 mt-1 uppercase font-medium">Pending</p>
+                        </div>
+                        <div className="bg-white/5 rounded-xl p-4 text-center border border-rose-500/20">
+                            <p className="text-3xl font-bold text-rose-400">{dailyWork.missed}</p>
+                            <p className="text-[10px] text-purple-300/50 mt-1 uppercase font-medium">Missed</p>
                         </div>
                     </div>
                 </section>
 
-                {/* Topics Covered This Week */}
-                <section className="bg-white/[0.06] backdrop-blur-xl border border-white/10 rounded-2xl p-5">
-                    <h3 className="text-sm font-semibold text-purple-300/70 uppercase tracking-wider mb-4 flex items-center gap-2">
-                        <BookOpen className="w-4 h-4 text-indigo-400" />
-                        Learning This Week
-                    </h3>
-
-                    {topicsCovered.length > 0 ? (
-                        <div className="space-y-2">
-                            {topicsCovered.map((topic, i) => (
-                                <div key={i} className="flex items-center gap-3 bg-white/5 rounded-lg p-3">
-                                    <div className="w-8 h-8 bg-indigo-500/20 rounded-lg flex items-center justify-center shrink-0">
-                                        <BookOpen className="w-4 h-4 text-indigo-400" />
-                                    </div>
-                                    <div>
-                                        <p className="text-sm font-medium text-white">{topic.topic_name}</p>
-                                        <p className="text-[10px] text-purple-300/50">{topic.subject_name}</p>
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-                    ) : (
-                        <div className="text-center py-4">
-                            <BookOpen className="w-8 h-8 text-purple-500/30 mx-auto mb-2" />
-                            <p className="text-sm text-purple-300/50">No topics scheduled this week yet</p>
-                        </div>
-                    )}
-                </section>
-
-                {/* Time Spent */}
+                {/* Weekly Time Spent */}
                 <section className="bg-white/[0.06] backdrop-blur-xl border border-white/10 rounded-2xl p-5">
                     <h3 className="text-sm font-semibold text-purple-300/70 uppercase tracking-wider mb-4 flex items-center gap-2">
                         <Timer className="w-4 h-4 text-cyan-400" />
-                        Time Spent
+                        Weekly Activity
                     </h3>
 
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-3 gap-3">
                         <div className="bg-white/5 rounded-xl p-4 text-center">
                             <p className="text-2xl font-bold text-white">
                                 {summary.time_spent_week >= 60
                                     ? `${Math.floor(summary.time_spent_week / 60)}h ${summary.time_spent_week % 60}m`
                                     : `${summary.time_spent_week}m`}
                             </p>
-                            <p className="text-[10px] text-purple-300/50 mt-1">This Week</p>
+                            <p className="text-[10px] text-purple-300/50 mt-1">Time This Week</p>
                         </div>
                         <div className="bg-white/5 rounded-xl p-4 text-center">
                             <p className="text-2xl font-bold text-white">{summary.avg_time_per_day}m</p>
                             <p className="text-[10px] text-purple-300/50 mt-1">Avg per Day</p>
                         </div>
+                        <div className="bg-white/5 rounded-xl p-4 text-center">
+                            <p className="text-2xl font-bold text-white">{summary.total_days_completed}</p>
+                            <p className="text-[10px] text-purple-300/50 mt-1">Days Completed</p>
+                        </div>
                     </div>
-                </section>
-
-                {/* Achievements */}
-                <section className="bg-white/[0.06] backdrop-blur-xl border border-white/10 rounded-2xl p-5">
-                    <h3 className="text-sm font-semibold text-purple-300/70 uppercase tracking-wider mb-4 flex items-center gap-2">
-                        <Trophy className="w-4 h-4 text-yellow-400" />
-                        Achievements ({achievements.length} earned)
-                    </h3>
-
-                    {achievements.length > 0 ? (
-                        <div className="space-y-3">
-                            {achievements.map((ach, i) => (
-                                <div key={i} className="bg-white/5 border border-white/10 rounded-xl p-4 flex items-start gap-3 hover:bg-white/10 transition-colors">
-                                    <div className="text-3xl">{ach.icon}</div>
-                                    <div className="flex-1">
-                                        <p className="text-sm font-bold text-white">{ach.name}</p>
-                                        {ach.description && (
-                                            <p className="text-xs text-purple-300/60 mt-0.5">{ach.description}</p>
-                                        )}
-                                        <p className="text-[10px] text-purple-300/40 mt-1">
-                                            Earned: {formatRelativeTime(ach.earned_at)}
-                                        </p>
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-                    ) : (
-                        <div className="text-center py-6">
-                            <Award className="w-12 h-12 text-purple-500/30 mx-auto mb-2" />
-                            <p className="text-sm text-purple-300/50">
-                                Keep going! Badges will appear here as they&apos;re earned.
-                            </p>
-                        </div>
-                    )}
                 </section>
 
 

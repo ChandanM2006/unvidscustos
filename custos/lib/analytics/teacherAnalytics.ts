@@ -191,12 +191,18 @@ export async function getClassPerformance(
             .in('student_id', studentIds)
             .eq('is_weak_topic', true),
         supabase
-            .from('assessment_phases')
-            .select('student_id, status, scheduled_date, score_percentage, completed_at')
+            .from('brain_daily_responses')
+            .select(`
+                student_id, 
+                mcq_completed, 
+                mcq_completed_at,
+                mcq_score,
+                mcq_total,
+                brain_daily_work!inner(work_date)
+            `)
             .in('student_id', studentIds)
-            .eq('phase_type', 'daily')
-            .gte('scheduled_date', thisWeek.start)
-            .lte('scheduled_date', thisWeek.end),
+            .gte('brain_daily_work.work_date', thisWeek.start)
+            .lte('brain_daily_work.work_date', thisWeek.end),
         supabase
             .from('student_doubts')
             .select('student_id')
@@ -241,7 +247,7 @@ export async function getClassPerformance(
     // Compute weekly completion per student
     const completionMap = new Map<string, number>()
     for (const p of phasesResult.data || []) {
-        if (p.status === 'completed') {
+        if (p.mcq_completed) {
             completionMap.set(p.student_id, (completionMap.get(p.student_id) || 0) + 1)
         }
     }
@@ -264,8 +270,8 @@ export async function getClassPerformance(
 
         // Get last active date
         const lastPhase = (phasesResult.data || [])
-            .filter(p => p.student_id === student.user_id && p.completed_at)
-            .sort((a, b) => new Date(b.completed_at).getTime() - new Date(a.completed_at).getTime())[0]
+            .filter(p => p.student_id === student.user_id && p.mcq_completed_at)
+            .sort((a, b) => new Date(b.mcq_completed_at).getTime() - new Date(a.mcq_completed_at).getTime())[0]
 
         performances.push({
             student_id: student.user_id,
@@ -279,7 +285,7 @@ export async function getClassPerformance(
             weak_topics: weakTopics.sort((a, b) => b.weakness_score - a.weakness_score).slice(0, 5),
             recent_doubts_count: doubtsCount,
             needs_attention: perfScore < 60 || doubtsCount > 3 || weakTopics.length > 3,
-            last_active: lastPhase?.completed_at || null,
+            last_active: lastPhase?.mcq_completed_at || null,
         })
     }
 
@@ -347,11 +353,17 @@ export async function getStudentDeepDive(studentId: string): Promise<StudentDeep
             .select('*, lesson_topics(topic_title)')
             .eq('student_id', studentId),
         supabase
-            .from('assessment_phases')
-            .select('*')
+            .from('brain_daily_responses')
+            .select(`
+                mcq_completed,
+                mcq_completed_at,
+                mcq_score,
+                mcq_total,
+                mcq_time_seconds,
+                brain_daily_work!inner(work_date)
+            `)
             .eq('student_id', studentId)
-            .gte('scheduled_date', new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0])
-            .order('scheduled_date', { ascending: false }),
+            .gte('brain_daily_work.work_date', new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]),
         supabase
             .from('student_doubts')
             .select('*, lesson_topics(topic_title)')
@@ -391,7 +403,17 @@ export async function getStudentDeepDive(studentId: string): Promise<StudentDeep
     }
 
     // 4. Compute trend (compare last 2 weeks)
-    const phases = phasesResult.data || []
+    let rawPhases = phasesResult.data || []
+    const phases = rawPhases.map((r: any) => ({
+        status: r.mcq_completed ? 'completed' : 'pending',
+        scheduled_date: r.brain_daily_work?.work_date,
+        score_percentage: r.mcq_total > 0 ? (r.mcq_score / r.mcq_total) * 100 : 0,
+        completed_at: r.mcq_completed_at,
+        time_taken_seconds: r.mcq_time_seconds || 0,
+        phase_type: 'daily',
+        total_questions: r.mcq_total || 0
+    })).sort((a, b) => new Date(b.scheduled_date).getTime() - new Date(a.scheduled_date).getTime())
+
     const twoWeeksAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
     const oneWeekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
 

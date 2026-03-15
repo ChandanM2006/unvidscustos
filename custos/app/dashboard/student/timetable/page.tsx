@@ -8,17 +8,20 @@ import {
 } from 'lucide-react'
 
 interface TimetableEntry {
-    time: string
+    start_time: string
+    end_time: string
     subject: string
     teacher: string
+    is_substitute?: boolean
     room: string
+    slot_number: number
 }
 
 export default function StudentTimetablePage() {
     const { goBack, router } = useSmartBack('/dashboard/student')
     const [user, setUser] = useState<User | null>(null)
     const [loading, setLoading] = useState(true)
-    const [selectedDay, setSelectedDay] = useState(new Date().getDay() || 1)
+    const [selectedDay, setSelectedDay] = useState(new Date().getDay())
     const [schedule, setSchedule] = useState<TimetableEntry[]>([])
 
     const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
@@ -62,14 +65,10 @@ export default function StudentTimetablePage() {
         if (!user?.class_id) return
 
         try {
+            // Step 1: Fetch raw timetable entries (no PostgREST joins)
             let query = supabase
                 .from('timetable_entries')
-                .select(`
-                    entry_id, day_of_week, room_number,
-                    timetable_slots (start_time, end_time, slot_name, is_break),
-                    subjects (name),
-                    users:teacher_id (full_name)
-                `)
+                .select('entry_id, day_of_week, room_number, subject_id, teacher_id, slot_id, notes')
                 .eq('class_id', user.class_id)
                 .eq('day_of_week', selectedDay)
 
@@ -77,23 +76,84 @@ export default function StudentTimetablePage() {
                 query = query.eq('section_id', user.section_id)
             }
 
-            const { data } = await query
+            const { data: entries, error } = await query
 
-            if (data) {
-                const formatted = data
-                    .map((entry: any) => ({
-                        time: entry.timetable_slots?.start_time || 'TBD',
-                        subject: entry.subjects?.name || 'Subject',
-                        teacher: entry.users?.full_name || 'Teacher',
-                        room: entry.room_number || ''
-                    }))
-                    .sort((a: TimetableEntry, b: TimetableEntry) => a.time.localeCompare(b.time))
-
-                setSchedule(formatted)
+            if (error) {
+                console.error('Error fetching entries:', error)
             }
+
+            if (!entries || entries.length === 0) {
+                setSchedule([])
+                return
+            }
+
+            // Step 2: Collect unique IDs for lookup
+            const subjectIds = [...new Set(entries.map(e => e.subject_id).filter(Boolean))]
+            const teacherIdsObj = new Set<string>();
+            entries.forEach((e: any) => {
+                let tid = e.teacher_id;
+                if (e.notes) {
+                    try { const n = JSON.parse(e.notes); if (n.type === 'substitution' && n.substitute_teacher_id) tid = n.substitute_teacher_id; } catch(err){}
+                }
+                e.actual_teacher_id = tid;
+                if (tid) teacherIdsObj.add(tid);
+            });
+            const teacherIds = Array.from(teacherIdsObj);
+            const slotIds = [...new Set(entries.map(e => e.slot_id).filter(Boolean))]
+
+            // Step 3: Fetch lookups in parallel
+            const [subjectsRes, teachersRes, slotsRes] = await Promise.all([
+                subjectIds.length > 0
+                    ? supabase.from('subjects').select('subject_id, name').in('subject_id', subjectIds)
+                    : { data: [] },
+                teacherIds.length > 0
+                    ? supabase.from('users').select('user_id, full_name').in('user_id', teacherIds)
+                    : { data: [] },
+                slotIds.length > 0
+                    ? supabase.from('timetable_slots').select('slot_id, slot_number, start_time, end_time').in('slot_id', slotIds)
+                    : { data: [] }
+            ])
+
+            const subjectMap = new Map((subjectsRes.data || []).map((s: any) => [s.subject_id, s.name]))
+            const teacherMap = new Map((teachersRes.data || []).map((t: any) => [t.user_id, t.full_name]))
+            const slotMap = new Map((slotsRes.data || []).map((s: any) => [s.slot_id, {
+                slot_number: s.slot_number,
+                start_time: s.start_time,
+                end_time: s.end_time
+            }]))
+
+            // Step 4: Build formatted schedule
+            const formatted = entries
+                .map((entry: any) => {
+                    const slot = slotMap.get(entry.slot_id) || { slot_number: 0, start_time: '', end_time: '' }
+                    let isSub = false;
+                    if (entry.notes) {
+                        try { const n = JSON.parse(entry.notes); if (n.type === 'substitution' && n.substitute_teacher_id) isSub = true; } catch(err){}
+                    }
+                    return {
+                        start_time: slot.start_time || '',
+                        end_time: slot.end_time || '',
+                        subject: subjectMap.get(entry.subject_id) || 'Subject',
+                        teacher: teacherMap.get(entry.actual_teacher_id) || 'TBA',
+                        is_substitute: isSub,
+                        room: entry.room_number || '',
+                        slot_number: slot.slot_number || 0
+                    }
+                })
+                .sort((a, b) => a.slot_number - b.slot_number || a.start_time.localeCompare(b.start_time))
+
+            setSchedule(formatted)
         } catch (error) {
             console.error('Error loading timetable:', error)
         }
+    }
+
+    function formatTime(time: string) {
+        if (!time) return 'TBD'
+        const [h, m] = time.split(':')
+        const hour = parseInt(h) % 12 || 12
+        const ampm = parseInt(h) >= 12 ? 'PM' : 'AM'
+        return `${hour}:${m} ${ampm}`
     }
 
     if (loading) {
@@ -145,7 +205,7 @@ export default function StudentTimetablePage() {
                 {/* Schedule */}
                 <div className="bg-white/10 backdrop-blur-lg rounded-2xl border border-white/10 overflow-hidden">
                     <div className="p-5 border-b border-white/10">
-                        <h2 className="text-lg font-bold text-white">{days[selectedDay]}'s Schedule</h2>
+                        <h2 className="text-lg font-bold text-white">{days[selectedDay]}&apos;s Schedule</h2>
                     </div>
 
                     {schedule.length === 0 ? (
@@ -158,14 +218,24 @@ export default function StudentTimetablePage() {
                         <div className="divide-y divide-white/10">
                             {schedule.map((period, i) => (
                                 <div key={i} className="p-4 flex items-center gap-4 hover:bg-white/5 transition-colors">
-                                    <div className="text-center min-w-[70px]">
+                                    <div className="text-center min-w-[80px]">
                                         <Clock className="w-4 h-4 text-cyan-400 mx-auto mb-1" />
-                                        <p className="text-sm font-medium text-white">{period.time}</p>
+                                        <p className="text-sm font-medium text-white">{formatTime(period.start_time)}</p>
+                                        <p className="text-xs text-green-300/50">{formatTime(period.end_time)}</p>
                                     </div>
+                                    <div className="w-px h-10 bg-white/10" />
                                     <div className="flex-1">
                                         <p className="font-semibold text-white">{period.subject}</p>
-                                        <p className="text-sm text-green-300/70">{period.teacher}</p>
+                                        <p className="text-sm text-green-300/70">
+                                            {period.is_substitute && <span className="text-[10px] uppercase font-bold text-purple-600 bg-purple-100 px-1 py-0.5 rounded shadow-sm mr-1">SUB</span>}
+                                            {period.teacher}
+                                        </p>
                                     </div>
+                                    {period.room && (
+                                        <span className="px-2 py-1 bg-white/10 text-white/60 text-xs rounded-lg">
+                                            Room {period.room}
+                                        </span>
+                                    )}
                                 </div>
                             ))}
                         </div>

@@ -37,6 +37,7 @@ interface TimetableEntry {
     end_time?: string
     slot_name?: string
     is_break?: boolean
+    is_substitute?: boolean
 }
 
 interface ExamInfo {
@@ -214,8 +215,22 @@ export default function CalendarPage() {
             const classIds = [...new Set(entries.map(e => e.class_id))]
             const sectionIds = [...new Set(entries.map(e => e.section_id).filter(Boolean))]
             const subjectIds = [...new Set(entries.map(e => e.subject_id).filter(Boolean))]
-            const teacherIds = [...new Set(entries.map(e => e.teacher_id).filter(Boolean))]
             const slotIds = [...new Set(entries.map(e => e.slot_id).filter(Boolean))]
+
+            // Look for substitutes
+            const substituteTeacherIds = new Set<string>();
+            entries.forEach(e => {
+                if (e.notes) {
+                    try {
+                        const n = JSON.parse(e.notes);
+                        if (n.type === 'substitution' && n.substitute_teacher_id) {
+                            e.substitute_teacher_id = n.substitute_teacher_id;
+                            substituteTeacherIds.add(n.substitute_teacher_id);
+                        }
+                    } catch(err) {}
+                }
+            });
+            const teacherIds = [...new Set([...entries.map(e => e.teacher_id).filter(Boolean), ...Array.from(substituteTeacherIds)])]
 
             const [classRes, sectionRes, subjectRes, teacherRes, slotRes] = await Promise.all([
                 classIds.length > 0 ? supabase.from('classes').select('class_id, name').in('class_id', classIds).eq('school_id', schoolId) : { data: [] },
@@ -237,13 +252,15 @@ export default function CalendarPage() {
             const enriched: TimetableEntry[] = entries
                 .filter(e => schoolClassIds.has(e.class_id))
                 .map(e => {
-                    const slot = slotMap.get(e.slot_id)
+                    const slot = slotMap.get(e.slot_id);
+                    const isSub = !!e.substitute_teacher_id;
                     return {
                         ...e,
                         class_name: classMap.get(e.class_id) || 'Unknown',
                         section_name: sectionMap.get(e.section_id) || '',
                         subject_name: subjectMap.get(e.subject_id) || 'Unknown',
-                        teacher_name: teacherMap.get(e.teacher_id) || 'Unassigned',
+                        teacher_name: isSub ? teacherMap.get(e.substitute_teacher_id) || 'Substitute' : teacherMap.get(e.teacher_id) || 'Unassigned',
+                        is_substitute: isSub,
                         start_time: slot?.start_time || '',
                         end_time: slot?.end_time || '',
                         slot_name: slot?.slot_name || '',
@@ -735,7 +752,10 @@ export default function CalendarPage() {
                                                                         </div>
                                                                         <div className="text-right">
                                                                             <p className="text-indigo-300/70 text-xs">{entry.subject_name}</p>
-                                                                            <p className="text-white/40 text-[10px]">{entry.teacher_name}</p>
+                                                                            <p className="text-white/40 text-[10px]">
+                                                                                {entry.is_substitute && <span className="text-[8px] uppercase font-bold text-indigo-700 bg-indigo-100 px-1 py-0.5 rounded shadow-sm mr-1">SUB</span>}
+                                                                                {entry.teacher_name}
+                                                                            </p>
                                                                         </div>
                                                                     </div>
                                                                 ))}

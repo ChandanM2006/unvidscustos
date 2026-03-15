@@ -18,7 +18,7 @@ interface LiveClass {
     room_number?: string
     start_time: string
     end_time: string
-    status: 'upcoming' | 'in_progress' | 'completed'
+    status: 'pending' | 'in_progress' | 'completed' | 'not_completed'
     students_present?: number
     total_students?: number
 }
@@ -39,6 +39,7 @@ interface LiveSessionData {
     teacher_notes: string | null
     slot_start_time: string
     slot_end_time: string
+    late_minutes?: number | null
 }
 
 interface TimeSlot {
@@ -60,12 +61,12 @@ export default function LiveClassesPage() {
     const [currentSlot, setCurrentSlot] = useState<TimeSlot | null>(null)
     const [stats, setStats] = useState({
         totalClasses: 0,
-        inProgress: 0,
         completed: 0,
-        upcoming: 0,
-        teacherSessionsLive: 0,
-        teacherSessionsDone: 0
+        pending: 0,
+        notCompleted: 0,
+        inProgress: 0,
     })
+    const [activeFilter, setActiveFilter] = useState<'all' | 'completed' | 'pending' | 'not_completed' | 'in_progress'>('all')
 
     // Update current time every minute
     useEffect(() => {
@@ -131,7 +132,7 @@ export default function LiveClassesPage() {
                 // Table may not exist yet or schema cache issue — silently fall back to empty
                 if (error.code === '42P01' || error.message?.includes('does not exist') || error.code === 'PGRST204' || error.message?.includes('Could not find a relationship')) {
                     setLiveClasses([])
-                    updateStats([], [])
+                    updateStats([])
                     return
                 }
                 console.error('Error loading timetable:', error.message || error.code || JSON.stringify(error))
@@ -171,14 +172,14 @@ export default function LiveClassesPage() {
                 room_number: entry.room_number,
                 start_time: entry.timetable_slots?.start_time || '',
                 end_time: entry.timetable_slots?.end_time || '',
-                status: 'upcoming' as const
+                status: 'pending' as const
             }))
 
             setLiveClasses(formatted)
 
             // Load teacher live sessions FIRST, then compute stats
             const sessions = await loadLiveSessions()
-            updateStats(formatted, sessions)
+            updateStats(formatted)
 
         } catch (error) {
             console.error('Error:', error)
@@ -231,32 +232,28 @@ export default function LiveClassesPage() {
             }
 
             // Fallback: time-based status
-            let status: 'upcoming' | 'in_progress' | 'completed' = 'upcoming'
+            let status: 'pending' | 'in_progress' | 'completed' | 'not_completed' = 'pending'
 
-            if (currentTimeStr >= cls.start_time.slice(0, 5) && currentTimeStr < cls.end_time.slice(0, 5)) {
+            if (currentTimeStr >= cls.end_time.slice(0, 5)) {
+                status = 'not_completed'
+            } else if (currentTimeStr >= cls.start_time.slice(0, 5)) {
                 status = 'in_progress'
-            } else if (currentTimeStr >= cls.end_time.slice(0, 5)) {
-                status = 'completed'
             }
 
             return { ...cls, status }
         })
 
         setLiveClasses(updated)
-        updateStats(updated, liveSessions)
+        updateStats(updated)
     }
 
-    function updateStats(classes: LiveClass[], sessions?: LiveSessionData[]) {
-        const sessionList = sessions || liveSessions
-        const liveCount = sessionList.filter(s => s.status === 'in_progress').length
-        const doneCount = sessionList.filter(s => s.status === 'completed').length
+    function updateStats(classes: LiveClass[]) {
         setStats({
             totalClasses: classes.length,
-            inProgress: classes.filter(c => c.status === 'in_progress').length,
             completed: classes.filter(c => c.status === 'completed').length,
-            upcoming: classes.filter(c => c.status === 'upcoming').length,
-            teacherSessionsLive: liveCount,
-            teacherSessionsDone: doneCount
+            pending: classes.filter(c => c.status === 'pending').length,
+            notCompleted: classes.filter(c => c.status === 'not_completed').length,
+            inProgress: classes.filter(c => c.status === 'in_progress').length,
         })
     }
 
@@ -293,17 +290,19 @@ export default function LiveClassesPage() {
                     </span>
                 )
             case 'completed':
+                return null
+            case 'not_completed':
                 return (
-                    <span className="px-3 py-1 bg-gray-100 text-gray-600 rounded-full text-xs font-bold flex items-center gap-1">
-                        <CheckCircle className="w-3 h-3" />
-                        Done
+                    <span className="px-3 py-1 bg-red-100 text-red-700 rounded-full text-xs font-bold flex items-center gap-1">
+                        <AlertCircle className="w-3 h-3" />
+                        Not Completed
                     </span>
                 )
             default:
                 return (
                     <span className="px-3 py-1 bg-blue-100 text-blue-700 rounded-full text-xs font-bold flex items-center gap-1">
                         <Timer className="w-3 h-3" />
-                        Upcoming
+                        Pending
                     </span>
                 )
         }
@@ -397,54 +396,71 @@ export default function LiveClassesPage() {
                     </div>
                 )}
 
-                {/* Stats Cards */}
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-                    <div className="bg-white/10 backdrop-blur-lg rounded-xl p-4 border border-white/10">
-                        <p className="text-purple-300 text-sm">Total Today</p>
+                {/* Stats Cards / Filters */}
+                <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-8">
+                    <button
+                        onClick={() => setActiveFilter('all')}
+                        className={`text-left rounded-xl p-4 border transition-all ${activeFilter === 'all'
+                            ? 'bg-white/20 border-white/30 ring-2 ring-white/20 shadow-lg'
+                            : 'bg-white/10 border-white/10 hover:bg-white/15'
+                            }`}
+                    >
+                        <p className="text-purple-300 text-sm">Total Classes</p>
                         <p className="text-3xl font-bold">{stats.totalClasses}</p>
-                    </div>
-                    <div className="bg-green-500/20 backdrop-blur-lg rounded-xl p-4 border border-green-500/30">
+                    </button>
+
+                    <button
+                        onClick={() => setActiveFilter('completed')}
+                        className={`text-left rounded-xl p-4 border transition-all ${activeFilter === 'completed'
+                            ? 'bg-gray-500/40 border-gray-400 ring-2 ring-gray-400/50 shadow-lg'
+                            : 'bg-gray-500/20 border-gray-500/30 hover:bg-gray-500/30'
+                            }`}
+                    >
+                        <p className="text-gray-300 text-sm">Completed</p>
+                        <p className="text-3xl font-bold text-gray-200">{stats.completed}</p>
+                    </button>
+
+                    <button
+                        onClick={() => setActiveFilter('pending')}
+                        className={`text-left rounded-xl p-4 border transition-all ${activeFilter === 'pending'
+                            ? 'bg-blue-500/40 border-blue-400 ring-2 ring-blue-400/50 shadow-lg'
+                            : 'bg-blue-500/20 border-blue-500/30 hover:bg-blue-500/30'
+                            }`}
+                    >
+                        <p className="text-blue-300 text-sm">Pending</p>
+                        <p className="text-3xl font-bold text-blue-400">{stats.pending}</p>
+                    </button>
+
+                    <button
+                        onClick={() => setActiveFilter('not_completed')}
+                        className={`text-left rounded-xl p-4 border transition-all ${activeFilter === 'not_completed'
+                            ? 'bg-red-500/40 border-red-400 ring-2 ring-red-400/50 shadow-lg'
+                            : 'bg-red-500/20 border-red-500/30 hover:bg-red-500/30'
+                            }`}
+                    >
+                        <p className="text-red-300 text-sm">Not Completed</p>
+                        <p className="text-3xl font-bold text-red-400">{stats.notCompleted}</p>
+                    </button>
+
+                    <button
+                        onClick={() => setActiveFilter('in_progress')}
+                        className={`text-left rounded-xl p-4 border transition-all ${activeFilter === 'in_progress'
+                            ? 'bg-green-500/40 border-green-400 ring-2 ring-green-400/50 shadow-lg'
+                            : 'bg-green-500/20 border-green-500/30 hover:bg-green-500/30'
+                            }`}
+                    >
                         <p className="text-green-300 text-sm">In Progress</p>
                         <p className="text-3xl font-bold text-green-400">{stats.inProgress}</p>
-                    </div>
-                    <div className="bg-gray-500/20 backdrop-blur-lg rounded-xl p-4 border border-gray-500/30">
-                        <p className="text-gray-300 text-sm">Completed</p>
-                        <p className="text-3xl font-bold text-gray-400">{stats.completed}</p>
-                    </div>
-                    <div className="bg-blue-500/20 backdrop-blur-lg rounded-xl p-4 border border-blue-500/30">
-                        <p className="text-blue-300 text-sm">Upcoming</p>
-                        <p className="text-3xl font-bold text-blue-400">{stats.upcoming}</p>
-                    </div>
+                    </button>
                 </div>
-
-                {/* Teacher Sessions Summary */}
-                {liveSessions.length > 0 && (
-                    <div className="grid grid-cols-2 gap-4 mb-8">
-                        <div className="bg-green-500/10 backdrop-blur-lg rounded-xl p-4 border border-green-500/20">
-                            <div className="flex items-center gap-2 mb-1">
-                                <Radio className="w-4 h-4 text-green-400 animate-pulse" />
-                                <p className="text-green-300 text-sm font-medium">Teacher Sessions LIVE</p>
-                            </div>
-                            <p className="text-3xl font-bold text-green-400">{stats.teacherSessionsLive}</p>
-                            <p className="text-xs text-gray-500 mt-1">Teachers who clicked "Start Class"</p>
-                        </div>
-                        <div className="bg-purple-500/10 backdrop-blur-lg rounded-xl p-4 border border-purple-500/20">
-                            <div className="flex items-center gap-2 mb-1">
-                                <Target className="w-4 h-4 text-purple-400" />
-                                <p className="text-purple-300 text-sm font-medium">Sessions Completed</p>
-                            </div>
-                            <p className="text-3xl font-bold text-purple-400">{stats.teacherSessionsDone}</p>
-                            <p className="text-xs text-gray-500 mt-1">With topic coverage reports</p>
-                        </div>
-                    </div>
-                )}
 
                 {/* Live Classes Grid */}
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                     {liveClasses
+                        .filter(cls => activeFilter === 'all' || cls.status === activeFilter)
                         .sort((a, b) => {
-                            // Sort: in_progress first, then upcoming, then completed
-                            const order = { in_progress: 0, upcoming: 1, completed: 2 }
+                            // Sort: in_progress first, then pending, then others
+                            const order = { in_progress: 0, pending: 1, not_completed: 2, completed: 3 }
                             return order[a.status] - order[b.status]
                         })
                         .map(cls => {
@@ -473,14 +489,19 @@ export default function LiveClassesPage() {
                                         </div>
                                         <div className="flex flex-col items-end gap-1">
                                             {getStatusBadge(cls.status)}
+                                            {session?.late_minutes && session.late_minutes > 0 ? (
+                                                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${session.late_minutes <= 5
+                                                    ? 'bg-green-500/20 text-green-300'
+                                                    : session.late_minutes <= 10
+                                                        ? 'bg-orange-500/20 text-orange-300'
+                                                        : 'bg-red-500/20 text-red-300'
+                                                    }`}>
+                                                    Late {session.late_minutes}m
+                                                </span>
+                                            ) : null}
                                             {hasActiveSession && (
                                                 <span className="px-2 py-0.5 bg-green-500/20 text-green-300 rounded-full text-[10px] font-bold">
                                                     Teacher LIVE
-                                                </span>
-                                            )}
-                                            {hasCompletedSession && (
-                                                <span className="px-2 py-0.5 bg-purple-500/20 text-purple-300 rounded-full text-[10px] font-bold">
-                                                    Session Done
                                                 </span>
                                             )}
                                         </div>

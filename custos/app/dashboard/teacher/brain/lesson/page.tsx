@@ -46,6 +46,10 @@ export default function TeacherLessonWorkPage() {
     const [selectedClassId, setSelectedClassId] = useState('')
     const [selectedSubjectId, setSelectedSubjectId] = useState('')
     const [selectedDocId, setSelectedDocId] = useState('')
+    
+    // NEW FOR FLEXIBLE TOPIC SELECTION
+    const [completedTopics, setCompletedTopics] = useState<any[]>([])
+    const [selectedTopicIds, setSelectedTopicIds] = useState<string[]>([])
 
     const [lessonWork, setLessonWork] = useState<LessonWork | null>(null)
     const [editingQId, setEditingQId] = useState<string | null>(null)
@@ -54,9 +58,61 @@ export default function TeacherLessonWorkPage() {
     const [expandedQ, setExpandedQ] = useState<string | null>(null)
 
     useEffect(() => { loadTeacherData() }, [])
-    useEffect(() => { if (selectedClassId && teacherId) loadSubjects() }, [selectedClassId, teacherId])
-    useEffect(() => { if (selectedSubjectId && selectedClassId) loadChapters() }, [selectedSubjectId, selectedClassId])
-    useEffect(() => { if (selectedDocId && selectedClassId && selectedSubjectId) loadExistingWork() }, [selectedDocId])
+    useEffect(() => { 
+        if (selectedClassId && teacherId) {
+            loadSubjects()
+            setLessonWork(null)
+            setCompletedTopics([])
+            setSelectedTopicIds([])
+        }
+    }, [selectedClassId, teacherId])
+    useEffect(() => { 
+        if (selectedSubjectId && selectedClassId) {
+            loadChapters()
+        }
+    }, [selectedSubjectId, selectedClassId])
+    useEffect(() => { 
+        if (selectedDocId && selectedClassId && selectedSubjectId) {
+            loadCompletedTopics()
+            loadExistingWork()
+        }
+    }, [selectedDocId])
+
+    async function loadCompletedTopics() {
+        if (!selectedClassId || !selectedSubjectId || !selectedDocId) return
+        try {
+            // First find all topics in this chapter
+            const { data: chapterTopics } = await supabase
+                .from('lesson_topics')
+                .select('topic_id, topic_title')
+                .eq('document_id', selectedDocId)
+
+            if (!chapterTopics || chapterTopics.length === 0) {
+                setCompletedTopics([])
+                setSelectedTopicIds([])
+                return
+            }
+
+            // Then check which ones are actually weekly_completed
+            const { data: weeklyWorks } = await supabase
+                .from('brain_weekly_work')
+                .select('topics_covered')
+                .eq('class_id', selectedClassId)
+                .eq('subject_id', selectedSubjectId)
+                .eq('status', 'completed')
+
+            const completedIds = new Set<string>()
+            weeklyWorks?.forEach(w => {
+                (w.topics_covered || []).forEach((t: any) => completedIds.add(t.topic_id))
+            })
+
+            // Filter chapter topics that have a weekly completion
+            const eligibleTopics = chapterTopics.filter(t => completedIds.has(t.topic_id))
+            
+            setCompletedTopics(eligibleTopics)
+            setSelectedTopicIds(eligibleTopics.map(t => t.topic_id))
+        } catch (e) { console.error(e) }
+    }
 
     async function loadTeacherData() {
         try {
@@ -111,12 +167,18 @@ export default function TeacherLessonWorkPage() {
     }
 
     async function handleGenerate() {
-        if (!selectedClassId || !selectedSubjectId || !selectedDocId) return
+        if (!selectedClassId || !selectedSubjectId || !selectedDocId || selectedTopicIds.length === 0) return
         setGenerating(true)
         try {
             const res = await fetch('/api/brain/work/lesson', {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ class_id: selectedClassId, subject_id: selectedSubjectId, document_id: selectedDocId, teacher_id: teacherId }),
+                body: JSON.stringify({ 
+                    class_id: selectedClassId, 
+                    subject_id: selectedSubjectId, 
+                    document_id: selectedDocId, 
+                    topic_ids: selectedTopicIds,
+                    teacher_id: teacherId 
+                }),
             })
             const data = await res.json()
             if (data.success) { setLessonWork(data.work); setHasEdits(false) }
@@ -269,18 +331,51 @@ th{background:#f0f0f0;font-weight:bold}.mark-cell{width:120px}
                             </select>
                         </div>
                     </div>
+
+                    {selectedDocId && !lessonWork && (
+                        <div className="mt-4">
+                            <label className="block text-xs font-medium text-indigo-400 mb-2 uppercase tracking-wider flex items-center gap-2">
+                                <CheckCircle className="w-4 h-4" /> Eligible Topics (Weekly Work Completed)
+                            </label>
+                            {completedTopics.length > 0 ? (
+                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
+                                    {completedTopics.map(topic => (
+                                        <label key={topic.topic_id} className="flex items-center gap-3 p-3 bg-white/5 rounded-lg border border-white/10 hover:bg-white/10 cursor-pointer transition-colors">
+                                            <input 
+                                                type="checkbox" 
+                                                checked={selectedTopicIds.includes(topic.topic_id)}
+                                                onChange={e => {
+                                                    if (e.target.checked) setSelectedTopicIds([...selectedTopicIds, topic.topic_id])
+                                                    else setSelectedTopicIds(selectedTopicIds.filter(id => id !== topic.topic_id))
+                                                }}
+                                                className="w-4 h-4 text-indigo-600 rounded bg-gray-700 border-gray-600 focus:ring-indigo-600"
+                                            />
+                                            <span className="text-sm font-medium">{topic.topic_title}</span>
+                                        </label>
+                                    ))}
+                                </div>
+                            ) : (
+                                <div className="p-4 bg-red-500/10 border border-red-500/20 rounded-lg flex items-center gap-3 text-red-400 text-sm">
+                                    <AlertTriangle className="w-5 h-5 flex-shrink-0" />
+                                    <p>No topics have completed the Weekly Work stage for this chapter. A topic must have the <b>Weekly Completed</b> flag before it can be selected for a final Lesson Test.</p>
+                                </div>
+                            )}
+                        </div>
+                    )}
                 </div>
 
                 {/* No work */}
                 {!lessonWork ? (
                     <div className="bg-white/5 rounded-xl border border-white/10 p-10 text-center">
                         <GraduationCap className="w-16 h-16 text-indigo-400/40 mx-auto mb-4" />
-                        <h3 className="text-xl font-bold mb-2">No Lesson Test for This Chapter</h3>
-                        <p className="text-gray-400 mb-4 max-w-md mx-auto">AI will perform its deepest analysis, combining all daily MCQ + weekly test data for every topic in this chapter. 60/40 weak/strong focus.</p>
+                        <h3 className="text-xl font-bold mb-2">Gatekeeper: Stage 3 (Lesson Work)</h3>
+                        <p className="text-gray-400 mb-4 max-w-md mx-auto">AI will perform its deepest analysis, combining all daily MCQ + weekly test data for the selected topics. 60/40 weak/strong focus.</p>
                         <div className="flex items-center justify-center gap-4 mb-6">
-                            <div className="bg-white/5 rounded-lg px-4 py-2 text-center"><p className="text-xs text-gray-500">Pre-conditions</p><p className="text-sm text-gray-300">Auto-checked</p></div>
+                            <div className="bg-white/5 rounded-lg px-4 py-2 text-center border border-emerald-500/20"><p className="text-xs text-emerald-500 font-bold mb-1"><CheckCircle className="w-4 h-4 mx-auto" /></p><p className="text-sm text-gray-300">Daily Cleared</p></div>
+                            <div className="h-0.5 w-4 bg-white/10"></div>
+                            <div className="bg-white/5 rounded-lg px-4 py-2 text-center border border-emerald-500/20"><p className="text-xs text-emerald-500 font-bold mb-1"><CheckCircle className="w-4 h-4 mx-auto" /></p><p className="text-sm text-gray-300">Weekly Cleared</p></div>
                         </div>
-                        <button onClick={handleGenerate} disabled={generating || !selectedDocId}
+                        <button onClick={handleGenerate} disabled={generating || !selectedDocId || selectedTopicIds.length === 0}
                             className="px-8 py-3 bg-gradient-to-r from-indigo-500 to-purple-600 rounded-xl font-bold text-white hover:shadow-lg hover:shadow-indigo-500/25 transition-all disabled:opacity-50 flex items-center gap-2 mx-auto">
                             {generating ? <><Loader2 className="w-5 h-5 animate-spin" />Analyzing all data...</> : <><Zap className="w-5 h-5" />Generate Chapter Test</>}
                         </button>

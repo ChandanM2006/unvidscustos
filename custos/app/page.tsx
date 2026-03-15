@@ -16,7 +16,7 @@ const roleCards = [
     desc: 'Manage daily operations',
     icon: UserCog,
     gradient: 'from-purple-500 to-pink-500',
-    path: '/login?role=admin',
+    path: '/login?role=subadmin',
   },
   {
     title: 'Teacher',
@@ -54,7 +54,7 @@ export default function HomePage() {
 
       {/* Logo */}
       <div className="text-center mb-12 relative z-10">
-        <h1 className="text-6xl font-bold bg-gradient-to-r from-blue-400 via-purple-400 to-pink-400 bg-clip-text text-transparent mb-4">
+        <h1 className="text-6xl font-bold text-white mb-4">
           CUSTOS 1.0
         </h1>
         <h2 className="text-2xl font-semibold text-white mb-2">

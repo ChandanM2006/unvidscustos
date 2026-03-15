@@ -85,11 +85,13 @@ export default function TeacherDailyWorkPage() {
     const [teacherId, setTeacherId] = useState('')
     const [classes, setClasses] = useState<ClassOption[]>([])
     const [subjects, setSubjects] = useState<SubjectOption[]>([])
+    const [chapters, setChapters] = useState<any[]>([])
     const [topics, setTopics] = useState<TopicOption[]>([])
 
     // Selected filters
     const [selectedClassId, setSelectedClassId] = useState('')
     const [selectedSubjectId, setSelectedSubjectId] = useState('')
+    const [selectedDocId, setSelectedDocId] = useState('')
     const [selectedTopicIds, setSelectedTopicIds] = useState<string[]>([])
     const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0])
     const [topicDropdownOpen, setTopicDropdownOpen] = useState(false)
@@ -117,10 +119,21 @@ export default function TeacherDailyWorkPage() {
     }, [selectedClassId, teacherId])
 
     useEffect(() => {
-        if (selectedSubjectId) {
-            loadTopics()
+        if (selectedSubjectId && selectedClassId) {
+            loadChapters()
+        } else {
+            setChapters([])
+            setSelectedDocId('')
         }
-    }, [selectedSubjectId])
+    }, [selectedSubjectId, selectedClassId])
+
+    useEffect(() => {
+        if (selectedDocId) {
+            loadTopics()
+        } else {
+            setTopics([])
+        }
+    }, [selectedDocId])
 
     useEffect(() => {
         if (selectedClassId && selectedDate) {
@@ -215,25 +228,35 @@ export default function TeacherDailyWorkPage() {
         }
     }
 
-    async function loadTopics() {
-        // Get topics from syllabus_documents for this subject
-        const { data: docs } = await supabase
+    async function loadChapters() {
+        const classInfo = classes.find(c => c.class_id === selectedClassId)
+        const gradeLevel = classInfo?.grade_level || 9
+
+        const { data } = await supabase
             .from('syllabus_documents')
-            .select('document_id')
+            .select('document_id, chapter_title, chapter_number')
             .eq('subject_id', selectedSubjectId)
+            .eq('grade_level', gradeLevel)
+            .order('chapter_number')
 
-        const docIds = (docs || []).map(d => d.document_id)
-        if (docIds.length > 0) {
-            const { data } = await supabase
-                .from('lesson_topics')
-                .select('topic_id, topic_title, document_id')
-                .in('document_id', docIds)
-                .order('topic_number')
-
-            setTopics(data || [])
+        setChapters(data || [])
+        if (data && data.length > 0) {
+            setSelectedDocId(data[0].document_id)
         } else {
-            setTopics([])
+            setSelectedDocId('')
         }
+    }
+
+    async function loadTopics() {
+        if (!selectedDocId) return
+
+        const { data } = await supabase
+            .from('lesson_topics')
+            .select('topic_id, topic_title, document_id')
+            .eq('document_id', selectedDocId)
+            .order('topic_number')
+
+        setTopics(data || [])
         setSelectedTopicIds([])
     }
 
@@ -503,7 +526,7 @@ export default function TeacherDailyWorkPage() {
 
                 {/* ─── Filters ─── */}
                 <div className="bg-white/5 rounded-xl border border-white/10 p-5">
-                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
                         {/* Class */}
                         <div>
                             <label className="block text-xs font-medium text-gray-400 mb-1.5 uppercase tracking-wider">Class</label>
@@ -534,6 +557,25 @@ export default function TeacherDailyWorkPage() {
                                         {s.name}
                                     </option>
                                 ))}
+                            </select>
+                        </div>
+
+                        {/* Lesson / Chapter */}
+                        <div>
+                            <label className="block text-xs font-medium text-gray-400 mb-1.5 uppercase tracking-wider">Lesson</label>
+                            <select
+                                value={selectedDocId}
+                                onChange={(e) => { setSelectedDocId(e.target.value); setDailyWork(null) }}
+                                className="w-full p-2.5 bg-white/10 border border-white/20 rounded-lg text-white focus:ring-2 focus:ring-emerald-500 outline-none text-sm"
+                            >
+                                {chapters.map(c => (
+                                    <option key={c.document_id} value={c.document_id} className="bg-gray-800">
+                                        Ch {c.chapter_number}: {c.chapter_title}
+                                    </option>
+                                ))}
+                                {chapters.length === 0 && (
+                                    <option className="bg-gray-800">No lessons found</option>
+                                )}
                             </select>
                         </div>
 
@@ -601,7 +643,7 @@ export default function TeacherDailyWorkPage() {
                                     ))}
 
                                     {topics.length === 0 && (
-                                        <p className="px-3 py-3 text-xs text-gray-500 text-center">No topics found for this subject</p>
+                                        <p className="px-3 py-3 text-xs text-gray-500 text-center">No topics found for this lesson</p>
                                     )}
                                 </div>
                             )}
